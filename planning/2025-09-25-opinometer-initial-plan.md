@@ -173,7 +173,7 @@ opinometer/
 ## Development Phases
 
 ### Phase 1: Foundation (Week 1-2)
-- [ ] Project setup with uv and modern Python tooling
+- [ ] Project initialization with `uv init` and modern Python tooling
 - [ ] Database schema creation and migrations
 - [ ] SQLModel models with automatic Pydantic schema generation
 - [ ] Basic FastAPI application structure

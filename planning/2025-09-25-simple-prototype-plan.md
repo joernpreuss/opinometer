@@ -31,9 +31,9 @@ opinometer-prototype/
 ```
 
 ### Dependencies
-```
-praw==7.7.1          # Reddit API
-vaderSentiment==3.3.2 # Sentiment Analysis
+```bash
+uv add praw==7.7.1          # Reddit API
+uv add vaderSentiment==3.3.2 # Sentiment Analysis
 ```
 
 ### main.py Workflow
@@ -83,7 +83,7 @@ def main():
 1. **Setup** (10 min)
    - `uv init opinometer-prototype`
    - Create Reddit App (reddit.com/prefs/apps)
-   - Install dependencies
+   - `uv add praw vaderSentiment`
 
 2. **Code** (15 min)
    - Write main.py
