@@ -10,12 +10,23 @@ import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
-import praw
+import praw  # type: ignore
 from pydantic import Field
 from pydantic_settings import BaseSettings
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress
+from rich.table import Table
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore
+
+console = Console()
+
+
+Result = dict[str, Any]
+
+PostData = dict[str, Any]
 
 
 class Settings(BaseSettings):
@@ -43,17 +54,29 @@ def setup_reddit() -> praw.Reddit:
         settings = Settings()
 
         if not settings.reddit_client_id or not settings.reddit_client_secret:
-            print("❌ Missing Reddit API credentials!")
-            print("Please add the following to your .env file:")
-            print("  REDDIT_CLIENT_ID=your_app_id")
-            print("  REDDIT_CLIENT_SECRET=your_secret")
-            print("  REDDIT_USER_AGENT=OpinometerPrototype/1.0")
-            print("\nGet credentials at: https://www.reddit.com/prefs/apps")
+            console.print(
+                Panel.fit(
+                    "[bold red]❌ Missing Reddit API credentials![/]\n\n"
+                    "Please add the following to your .env file:\n"
+                    "[cyan]REDDIT_CLIENT_ID[/]=[yellow]your_app_id[/]\n"
+                    "[cyan]REDDIT_CLIENT_SECRET[/]=[yellow]your_secret[/]\n"
+                    "[cyan]REDDIT_USER_AGENT[/]=[yellow]OpinometerPrototype/1.0[/]\n\n"
+                    "Get credentials at: [link=https://www.reddit.com/prefs/apps]reddit.com/prefs/apps[/]",
+                    title="[bold red]Configuration Error[/]",
+                    border_style="red",
+                )
+            )
             raise SystemExit(1)
 
     except Exception as e:
-        print("❌ Error loading settings!")
-        print(f"Error details: {e}")
+        console.print(
+            Panel.fit(
+                f"[bold red]❌ Error loading settings![/]\n\n"
+                f"Error details: [yellow]{e}[/]",
+                title="[bold red]Configuration Error[/]",
+                border_style="red",
+            )
+        )
         raise SystemExit(1)
 
     return praw.Reddit(
@@ -65,20 +88,22 @@ def setup_reddit() -> praw.Reddit:
 
 def collect_reddit_posts(
     reddit: praw.Reddit, query: str, limit: int = 20
-) -> List[Dict[str, Any]]:
+) -> list[PostData]:
     """Collect Reddit posts matching the search query."""
 
-    print(f"🔍 Searching Reddit for '{query}'...")
+    console.print(f"🔍 Searching Reddit for '[cyan]{query}[/]'...")
 
-    posts = []
+    posts: list[PostData] = []
     try:
         # Search across all Reddit
         search_results = reddit.subreddit("all").search(
             query, limit=limit, sort="relevance"
         )
 
+        # Type alias for post data dictionary
+
         for submission in search_results:
-            post_data = {
+            post_data: PostData = {
                 "id": submission.id,
                 "title": submission.title,
                 "selftext": submission.selftext,
@@ -92,23 +117,23 @@ def collect_reddit_posts(
             }
             posts.append(post_data)
 
-        print(f"✅ Found {len(posts)} posts")
+        console.print(f"✅ Found [bold green]{len(posts)}[/] posts")
         return posts
 
     except Exception as e:
-        print(f"❌ Error collecting posts: {e}")
+        console.print(f"❌ [bold red]Error collecting posts:[/] {e}")
         return []
 
 
 def analyze_sentiment(
     text: str, analyzer: SentimentIntensityAnalyzer
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Analyze sentiment of text using VADER."""
 
     if not text or not text.strip():
         return {"compound": 0.0, "positive": 0.0, "neutral": 1.0, "negative": 0.0}
 
-    scores = analyzer.polarity_scores(text)
+    scores = analyzer.polarity_scores(text)  # type: ignore
     return {
         "compound": scores["compound"],
         "positive": scores["pos"],
@@ -127,7 +152,9 @@ def sentiment_label(compound_score: float) -> str:
         return "neutral"
 
 
-def save_results(posts: List[Dict], sentiment_results: List[Dict], query: str):
+def save_results(
+    posts: list[dict[str, Any]], sentiment_results: list[dict[str, Any]], query: str
+):
     """Save results to JSON and CSV files."""
 
     results_dir = Path("results")
@@ -182,16 +209,22 @@ def save_results(posts: List[Dict], sentiment_results: List[Dict], query: str):
                 ]
             )
 
-    print("💾 Saved results:")
-    print(f"  📄 Posts: {posts_file}")
-    print(f"  📊 Sentiment: {csv_file}")
+    console.print(
+        Panel.fit(
+            f"💾 [bold green]Saved results:[/]\n\n"
+            f"📄 Posts: [cyan]{posts_file}[/]\n"
+            f"📊 Sentiment: [cyan]{csv_file}[/]",
+            title="[bold green]Results Saved[/]",
+            border_style="green",
+        )
+    )
 
 
-def print_summary(sentiment_results: List[Dict], query: str):
+def print_summary(sentiment_results: list[dict[str, Any]], query: str):
     """Print a summary of sentiment analysis results."""
 
     if not sentiment_results:
-        print("❌ No results to summarize")
+        console.print("❌ [bold red]No results to summarize[/]")
         return
 
     # Calculate statistics
@@ -204,52 +237,99 @@ def print_summary(sentiment_results: List[Dict], query: str):
     neutral_count = labels.count("neutral")
     negative_count = labels.count("negative")
 
-    print(f"\n📈 Sentiment Analysis Summary for '{query}':")
-    print(f"   Total posts analyzed: {len(sentiment_results)}")
-    print(f"   Average sentiment: {avg_sentiment:.3f}")
-    print(
-        f"   Positive: {positive_count} ({positive_count/len(sentiment_results)*100:.1f}%)"
+    # Create summary table
+    table = Table(
+        title=f"📈 Sentiment Analysis Summary for '{query}'", show_header=True
     )
-    print(
-        f"   Neutral:  {neutral_count} ({neutral_count/len(sentiment_results)*100:.1f}%)"
+    table.add_column("Metric", style="bold")
+    table.add_column("Value", style="bold")
+
+    table.add_row("Total posts analyzed", f"[bold blue]{len(sentiment_results)}[/]")
+
+    # Color-code average sentiment
+    if avg_sentiment > 0.1:
+        sentiment_color = "green"
+        sentiment_emoji = "😊"
+    elif avg_sentiment < -0.1:
+        sentiment_color = "red"
+        sentiment_emoji = "😞"
+    else:
+        sentiment_color = "yellow"
+        sentiment_emoji = "😐"
+
+    table.add_row(
+        "Average sentiment",
+        f"[{sentiment_color}]{avg_sentiment:.3f} {sentiment_emoji}[/]",
     )
-    print(
-        f"   Negative: {negative_count} ({negative_count/len(sentiment_results)*100:.1f}%)"
+    table.add_row(
+        "Positive",
+        f"[green]{positive_count} ({positive_count / len(sentiment_results) * 100:.1f}%)[/]",
+    )
+    table.add_row(
+        "Neutral",
+        f"[yellow]{neutral_count} ({neutral_count / len(sentiment_results) * 100:.1f}%)[/]",
+    )
+    table.add_row(
+        "Negative",
+        f"[red]{negative_count} ({negative_count / len(sentiment_results) * 100:.1f}%)[/]",
     )
 
-    print("\n🔍 Top posts by sentiment:")
-    # Sort by compound score and show top 5 positive and negative
+    console.print(table)
+
+    # Sort by compound score and show top posts
     sorted_results = sorted(
         sentiment_results, key=lambda x: x["sentiment"]["compound"], reverse=True
     )
 
-    print("   Most Positive:")
+    # Create top posts table
+    posts_table = Table(title="🔍 Top Posts by Sentiment", show_header=True)
+    posts_table.add_column("Score", width=8, style="bold")
+    posts_table.add_column("Title", max_width=70)
+    posts_table.add_column("Subreddit", width=15, style="dim")
+
+    # Most positive
+    posts_table.add_section()
     for result in sorted_results[:3]:
         score = result["sentiment"]["compound"]
         title = (
-            result["title"][:60] + "..."
-            if len(result["title"]) > 60
+            result["title"][:67] + "..."
+            if len(result["title"]) > 67
             else result["title"]
         )
-        print(f"     {score:+.3f} - {title}")
+        score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
+        posts_table.add_row(
+            f"[{score_color}]{score:+.3f}[/]", title, f"r/{result['subreddit']}"
+        )
 
+    # Most negative (if we have more than 3 results)
     if len(sorted_results) > 3:
-        print("   Most Negative:")
+        posts_table.add_section()
         for result in sorted_results[-3:]:
             score = result["sentiment"]["compound"]
             title = (
-                result["title"][:60] + "..."
-                if len(result["title"]) > 60
+                result["title"][:67] + "..."
+                if len(result["title"]) > 67
                 else result["title"]
             )
-            print(f"     {score:+.3f} - {title}")
+            score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
+            posts_table.add_row(
+                f"[{score_color}]{score:+.3f}[/]", title, f"r/{result['subreddit']}"
+            )
+
+    console.print(posts_table)
 
 
 def main():
     """Main function - orchestrates the sentiment analysis pipeline."""
 
-    print("🎯 Opinometer Simple Prototype")
-    print("=" * 50)
+    console.print(
+        Panel.fit(
+            "[bold blue]🎯 Opinometer Simple Prototype[/]\n\n"
+            "[dim]Reddit sentiment analysis with VADER[/]",
+            title="[bold blue]Opinometer[/]",
+            border_style="blue",
+        )
+    )
 
     # Configuration
     query = "Claude Code"
@@ -257,7 +337,7 @@ def main():
 
     try:
         # Setup
-        print("🔧 Setting up...")
+        console.print("🔧 [bold]Setting up...[/]")
         reddit = setup_reddit()
         analyzer = SentimentIntensityAnalyzer()
 
@@ -265,39 +345,45 @@ def main():
         posts = collect_reddit_posts(reddit, query, limit)
 
         if not posts:
-            print("❌ No posts found. Exiting.")
+            console.print("❌ [bold red]No posts found. Exiting.[/]")
             return
 
-        # Analyze sentiment
-        print("🧠 Analyzing sentiment...")
-        sentiment_results = []
+        # Analyze sentiment with progress bar
+        console.print("🧠 [bold]Analyzing sentiment...[/]")
+        sentiment_results: list[Result] = []
 
-        for post in posts:
-            # Combine title and selftext for analysis
-            full_text = f"{post['title']} {post['selftext']}"
-            sentiment = analyze_sentiment(full_text, analyzer)
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Processing posts...", total=len(posts))
 
-            result = {
-                "post_id": post["id"],
-                "title": post["title"],
-                "selftext": post["selftext"],
-                "subreddit": post["subreddit"],
-                "score": post["score"],
-                "sentiment": sentiment,
-                "sentiment_label": sentiment_label(sentiment["compound"]),
-            }
-            sentiment_results.append(result)
+            for post in posts:
+                # Combine title and selftext for analysis
+                full_text = f"{post['title']} {post['selftext']}"
+                sentiment = analyze_sentiment(full_text, analyzer)
+
+                result: Result = {
+                    "post_id": post["id"],
+                    "title": post["title"],
+                    "selftext": post["selftext"],
+                    "subreddit": post["subreddit"],
+                    "score": post["score"],
+                    "sentiment": sentiment,
+                    "sentiment_label": sentiment_label(sentiment["compound"]),
+                }
+                sentiment_results.append(result)
+                progress.update(task, advance=1)
 
         # Output results
         print_summary(sentiment_results, query)
         save_results(posts, sentiment_results, query)
 
-        print(f"\n✅ Analysis complete! Found {len(posts)} posts about '{query}'")
+        console.print(
+            f"\n✅ [bold green]Analysis complete![/] Found [bold blue]{len(posts)}[/] posts about '[cyan]{query}[/]'"
+        )
 
     except KeyboardInterrupt:
-        print("\n❌ Interrupted by user")
+        console.print("\n❌ [bold red]Interrupted by user[/]")
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+        console.print(f"❌ [bold red]Unexpected error:[/] {e}")
 
 
 if __name__ == "__main__":
