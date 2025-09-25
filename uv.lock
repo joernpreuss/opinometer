@@ -93,10 +93,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "praw", specifier = ">=7.8.1" },
-    { name = "pydantic-settings", specifier = ">=2.11.0" },
-    { name = "rich", specifier = ">=14.1.0" },
-    { name = "vadersentiment", specifier = ">=3.3.2" },
+    { name = "praw", specifier = "==7.8.1" },
+    { name = "pydantic-settings", specifier = "==2.11.0" },
+    { name = "rich", specifier = "==14.1.0" },
+    { name = "vadersentiment", specifier = "==3.3.2" },
 ]
 
 [[package]]
