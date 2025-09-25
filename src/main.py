@@ -13,13 +13,13 @@ from pathlib import Path
 from typing import Any
 
 import praw  # type: ignore
-from pydantic import Field
-from pydantic_settings import BaseSettings
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress
 from rich.table import Table
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore
+
+from config import Settings
 
 console = Console()
 
@@ -27,24 +27,6 @@ console = Console()
 Result = dict[str, Any]
 
 PostData = dict[str, Any]
-
-
-class Settings(BaseSettings):
-    """Configuration settings loaded from environment variables or .env file."""
-
-    reddit_client_id: str | None = Field(
-        default=None, description="Reddit API client ID"
-    )
-    reddit_client_secret: str | None = Field(
-        default=None, description="Reddit API client secret"
-    )
-    reddit_user_agent: str | None = Field(
-        default="OpinometerPrototype/1.0", description="Reddit API user agent"
-    )
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 def setup_reddit() -> praw.Reddit:
