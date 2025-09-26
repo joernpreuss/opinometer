@@ -27,6 +27,31 @@ from version_extractor import extract_claude_version
 console = Console()
 app = typer.Typer(no_args_is_help=False)
 
+
+def show_help():
+    """Display help information."""
+    help_text = """
+[bold blue]Opinometer[/bold blue] - Multi-source sentiment analysis tool
+
+[bold]Usage:[/bold]
+  uv run src/main.py [OPTIONS]
+
+[bold]Options:[/bold]
+  -q, --query TEXT        Search query to analyze [default: Claude Code]
+  -a, --all-posts         Show all posts instead of just top/bottom 5
+  -l, --limit INTEGER     Total number of posts to collect [default: 60]
+  -d, --sort-by-date      Sort posts by date instead of sentiment
+  -h, --help              Show this message and exit
+
+[bold]Examples:[/bold]
+  uv run src/main.py                              # Default behavior
+  uv run src/main.py -q "GPT-4" -l 40             # Custom query and limit
+  uv run src/main.py -d -a                        # Sort by date, show all
+  uv run src/main.py --query "Claude 4" --help    # This help message
+"""
+    console.print(help_text)
+
+
 # Type aliases
 Result = dict[str, Any]
 PostData = dict[str, Any]
@@ -248,7 +273,10 @@ def save_results(
 
 
 def print_summary(
-    sentiment_results: list[dict[str, Any]], query: str, show_all: bool = False
+    sentiment_results: list[dict[str, Any]],
+    query: str,
+    show_all: bool = False,
+    sort_by_date: bool = False,
 ):
     """Print a summary of sentiment analysis results."""
 
@@ -305,10 +333,17 @@ def print_summary(
 
     console.print(table)
 
-    # Sort by compound score and show top posts
-    sorted_results = sorted(
-        sentiment_results, key=lambda x: x["sentiment"]["compound"], reverse=True
-    )
+    # Sort posts
+    if sort_by_date:
+        sorted_results = sorted(
+            sentiment_results, key=lambda x: x["created_utc"], reverse=True
+        )
+        table_title = "🗓️ Posts by Date (Newest First)"
+    else:
+        sorted_results = sorted(
+            sentiment_results, key=lambda x: x["sentiment"]["compound"], reverse=True
+        )
+        table_title = "🔍 Top Posts by Sentiment"
 
     # Create top posts table with dynamic width
     terminal_width = console.size.width
@@ -318,9 +353,7 @@ def print_summary(
     )
     title_width = max(25, terminal_width - fixed_width)  # At least 25 chars for title
 
-    posts_table = Table(
-        title="🔍 Top Posts by Sentiment", show_header=True, width=terminal_width
-    )
+    posts_table = Table(title=table_title, show_header=True, width=terminal_width)
     posts_table.add_column("Score", width=8, style="bold")
     posts_table.add_column("Version", width=12, style="cyan")
     posts_table.add_column("Date", width=12, style="dim")
@@ -358,8 +391,16 @@ def main(
     limit: int = typer.Option(
         60, "--limit", "-l", help="Total number of posts to collect"
     ),
+    sort_by_date: bool = typer.Option(
+        False, "--sort-by-date", "-d", help="Sort posts by date instead of sentiment"
+    ),
+    help_flag: bool = typer.Option(False, "--help", "-h", help="Show help and exit"),
 ):
     """Multi-source sentiment analysis with Reddit and Hacker News."""
+
+    if help_flag:
+        show_help()
+        return
 
     console.print(
         Panel.fit(
@@ -415,7 +456,7 @@ def main(
                 progress.update(task, advance=1)
 
         # Output results
-        print_summary(sentiment_results, query, all_posts)
+        print_summary(sentiment_results, query, all_posts, sort_by_date)
         save_results(posts, sentiment_results, query)
 
         console.print(
