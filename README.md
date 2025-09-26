@@ -12,43 +12,21 @@ Opinometer monitors sentiment about specific topics (like "Claude Code") by:
 
 ## Features
 
-- **Multi-source data collection**: Reddit (via PRAW) and Hacker News APIs
+- **Multi-source data collection**: Reddit and Hacker News APIs
 - **Sentiment analysis**: VADER sentiment analysis engine
-- **No API keys required for HN**: Hacker News uses free Algolia search API
+- **No API keys required**: Both Reddit and Hacker News use public APIs
 - **Beautiful console output**: Rich library for colorful tables and progress bars
 - **Data export**: Results saved to JSON and CSV formats
 
 ## Quick Start (Simple Prototype)
 
-### 1. Setup Reddit API
-
-1. Go to [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps/)
-2. Click "Create App"
-3. Choose "script" type
-4. Note your `client_id` and `client_secret`
-
-### 2. Install Dependencies
+### 1. Install Dependencies
 
 ```bash
-uv init
-uv add praw vaderSentiment
+uv sync
 ```
 
-### 3. Configure Credentials
-
-```bash
-cp .env.example .env
-# Edit .env with your Reddit credentials
-```
-
-Or set environment variables:
-```bash
-export REDDIT_CLIENT_ID="your_client_id"
-export REDDIT_CLIENT_SECRET="your_secret"
-export REDDIT_USER_AGENT="OpinometerPrototype/1.0"
-```
-
-### 4. Run the Prototype
+### 2. Run the Prototype
 
 ```bash
 uv run src/main.py
@@ -104,11 +82,14 @@ This will:
 ```
 opinometer/
 ├── src/
-│   └── main.py          # Simple prototype script
+│   ├── platforms/       # Platform-specific data collectors
+│   │   ├── base.py     # Abstract base platform class
+│   │   ├── reddit.py   # Reddit data collection
+│   │   └── hackernews.py # Hacker News data collection
+│   └── main.py          # Main application script
 ├── pyproject.toml       # uv project configuration
-├── .env.example         # Environment variables template
 ├── results/             # Output directory (created automatically)
-│   ├── posts_*.json    # Raw Reddit post data
+│   ├── posts_*.json    # Raw post data
 │   └── sentiment_*.csv # Sentiment analysis results
 ├── database/            # Database schema (future)
 ├── docs/                # Documentation (future)
@@ -138,10 +119,11 @@ opinometer/
 
 ## Technical Stack
 
-- **Python 3.10+** with modern type hints
+- **Python 3.13+** with modern type hints
 - **uv** for fast package management
-- **PRAW** for Reddit API access
+- **httpx** for async HTTP requests to Reddit and Hacker News APIs
 - **VADER** for sentiment analysis
+- **Rich** for beautiful console output
 - **FastAPI** for REST API (planned)
 - **SQLModel** for database ORM (planned)
 - **PostgreSQL** for data storage (planned)

@@ -1,6 +1,8 @@
 # Opinometer - Sentiment Analysis Over Time
 
-A Python application that tracks sentiment changes about specific topics (e.g., "Claude Code") by collecting posts from Reddit and other sources, storing them in SQL, and analyzing sentiment trends over time.
+A Python application that tracks sentiment changes about specific topics (e.g., "Claude Code") by collecting posts from Reddit and HackerNews, analyzing sentiment with VADER, and providing rich console output with optional data export.
+
+**Status**: ✅ **Functional prototype completed** - Multi-source parallel collection working!
 
 ## Project Overview
 
@@ -40,7 +42,7 @@ A Python application that tracks sentiment changes about specific topics (e.g., 
 ## Technical Stack
 
 ### Backend
-- **Python 3.10+** with modern type hints
+- **Python 3.13+** with modern type hints
 - **FastAPI** for REST API
 - **SQLModel** for ORM and Pydantic integration
 - **PostgreSQL** for primary database

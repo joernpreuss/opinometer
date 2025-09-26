@@ -8,9 +8,12 @@ Thank you for your interest in contributing to Opinometer! This document provide
 2. **Clone your fork** locally
 3. **Set up the development environment**:
    ```bash
-   # Install Python 3.10+ and uv
+   # Install Python 3.13+ and uv
    # uv handles Python versions and dependencies automatically
    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+   # Install dependencies
+   uv sync
    ```
 
 ## Development Process
@@ -18,10 +21,13 @@ Thank you for your interest in contributing to Opinometer! This document provide
 ### Project Structure
 
 - `planning/` - Project planning and analysis documents
-- `database/` - Database schema and migrations
-- `docs/` - Documentation (when implemented)
-- `src/` - Source code (when implemented)
-- `tests/` - Test suite (when implemented)
+- `src/` - Source code
+  - `platforms/` - Platform-specific data collectors (Reddit, HackerNews)
+  - `main.py` - Main application
+- `results/` - Analysis output (JSON/CSV files)
+- `database/` - Database schema and migrations (planned)
+- `docs/` - Documentation (planned)
+- `tests/` - Test suite (planned)
 
 ### Planning-First Development
 
@@ -35,11 +41,13 @@ This project follows a planning-first approach:
 
 When implementation begins, we'll follow:
 
-- **Python 3.10+** with modern type hints
-- **Code formatting** with Black and Ruff
+- **Python 3.13+** with modern type hints
+- **Code formatting** with Ruff
 - **Type checking** with mypy
-- **Testing** with pytest
+- **Testing** with pytest (planned)
 - **Documentation** with clear docstrings
+- **httpx** for async HTTP requests (Reddit and HackerNews APIs)
+- **No API keys required** - uses public JSON endpoints
 
 ## Contributing Guidelines
 
@@ -85,26 +93,29 @@ When the codebase is implemented:
 git clone https://github.com/joernpreuss/opinometer.git
 cd opinometer
 
-# Initialize uv project (handles venv and dependencies automatically)
-uv init
-uv add --dev pytest ruff black mypy
+# Install dependencies
+uv sync
 
-# Run tests
+# Run the application
+uv run src/main.py
+
+# Run tests (when implemented)
 uv run pytest
 
-# Run linting
-uv run ruff check src/ tests/
-uv run black --check src/ tests/
+# Run QA checks
+uv run ruff format src/ --check --diff
+uv run ruff check src/
+uv run mypy src/
 ```
 
 ## Current Development Status
 
-🚧 **Planning Phase** - We're currently in the planning phase. The best way to contribute right now is:
+✅ **Prototype Phase** - Working multi-source sentiment analysis prototype! The best way to contribute:
 
-- **Review planning documents** in `planning/`
-- **Suggest improvements** to the architecture
-- **Identify potential issues** early in the design phase
-- **Contribute to documentation** and project structure
+- **Test the application** with different search queries
+- **Review the codebase** in `src/` for improvements
+- **Suggest new platforms** to add to the analysis
+- **Contribute to documentation** and expand features
 
 ## Questions or Need Help?
 
