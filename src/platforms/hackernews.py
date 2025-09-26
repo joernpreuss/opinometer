@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""
+Hacker News platform data collector.
+
+Provides functionality to search and collect posts from Hacker News
+that match specific topics for sentiment analysis.
+"""
+
+from datetime import datetime, timezone
+
+import httpx
+from rich.console import Console
+
+from platforms.base import BasePlatform, PostData
+from version_extractor import extract_claude_version
+
+console = Console()
+
+
+class HackerNewsPlatform(BasePlatform):
+    """Hacker News data collector using the Firebase API."""
+
+    def __init__(self):
+        """Initialize the Hacker News platform."""
+        super().__init__("HackerNews")
+
+    def setup(self) -> None:
+        """Set up Hacker News platform (no authentication required)."""
+        # Hacker News API doesn't require authentication
+        pass
+
+    async def collect_posts_async(self, query: str, limit: int = 20) -> list[PostData]:
+        """Collect Hacker News posts matching the search query using async httpx."""
+        console.print(f"🔍 Searching {self.name} for '[cyan]{query}[/]'...")
+
+        posts: list[PostData] = []
+
+        try:
+            # Search using Algolia HN Search API
+            search_url = "https://hn.algolia.com/api/v1/search"
+            params = {
+                "query": query,
+                "tags": "story",  # Only get stories, not comments
+                "hitsPerPage": str(limit),
+                "numericFilters": "points>0",  # Only posts with some engagement
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(search_url, params=params, timeout=10.0)
+                response.raise_for_status()
+                data = response.json()
+
+            for hit in data.get("hits", []):
+                # Skip if no title
+                if not hit.get("title"):
+                    continue
+
+                title = hit.get("title", "")
+                selftext = hit.get("story_text", "") or ""
+
+                post_data: PostData = {
+                    "id": f"hn_{hit.get('objectID', '')}",
+                    "title": title,
+                    "selftext": selftext,
+                    "score": hit.get("points", 0),
+                    "url": hit.get(
+                        "url",
+                        f"https://news.ycombinator.com/item?id={hit.get('objectID', '')}",
+                    ),
+                    "subreddit": self.name,
+                    "source": self.name,
+                    "claude_version": extract_claude_version(title, selftext),
+                    "author": hit.get("author", "[deleted]"),
+                    "created_utc": hit.get("created_at_i", 0),
+                    "num_comments": hit.get("num_comments", 0),
+                    "collected_at": datetime.now(timezone.utc).isoformat(),
+                }
+                posts.append(post_data)
+
+            console.print(f"✅ Found [bold green]{len(posts)}[/] {self.name} posts")
+            return posts
+
+        except Exception as e:
+            console.print(f"❌ [bold red]Error collecting {self.name} posts:[/] {e}")
+            return []

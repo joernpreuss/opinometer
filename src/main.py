@@ -6,7 +6,6 @@ Collects Reddit posts about specific topics and analyzes sentiment using VADER.
 No database required - outputs to JSON/CSV files.
 """
 
-
 import csv
 import json
 from datetime import datetime, timezone
@@ -14,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import praw  # type: ignore
 import typer
 from bs4 import BeautifulSoup
 from rich.console import Console
@@ -23,9 +21,8 @@ from rich.progress import Progress
 from rich.table import Table
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore
 
-from config import Settings
-from hackernews import collect_hackernews_posts
-from version_extractor import extract_claude_version
+from platforms.hackernews import HackerNewsPlatform
+from platforms.reddit import RedditPlatform
 
 HELP_TEXT = """
 [bold blue]Opinometer[/bold blue] - Multi-source sentiment analysis tool
@@ -61,88 +58,6 @@ def show_help():
 # Type aliases
 Result = dict[str, Any]
 PostData = dict[str, Any]
-
-
-def setup_reddit() -> praw.Reddit:
-    """Set up Reddit API connection using settings."""
-
-    try:
-        settings = Settings()
-
-        if not settings.reddit_client_id or not settings.reddit_client_secret:
-            console.print(
-                Panel.fit(
-                    "[bold red]❌ Missing Reddit API credentials![/]\n\n"
-                    "Please add the following to your .env file:\n"
-                    "[cyan]REDDIT_CLIENT_ID[/]=[yellow]your_app_id[/]\n"
-                    "[cyan]REDDIT_CLIENT_SECRET[/]=[yellow]your_secret[/]\n"
-                    "[cyan]REDDIT_USER_AGENT[/]=[yellow]OpinometerPrototype/1.0[/]\n\n"
-                    "Get credentials at: [link=https://www.reddit.com/prefs/apps]reddit.com/prefs/apps[/]",
-                    title="[bold red]Configuration Error[/]",
-                    border_style="red",
-                )
-            )
-            raise SystemExit(1)
-
-    except Exception as e:
-        console.print(
-            Panel.fit(
-                f"[bold red]❌ Error loading settings![/]\n\n"
-                f"Error details: [yellow]{e}[/]",
-                title="[bold red]Configuration Error[/]",
-                border_style="red",
-            )
-        )
-        raise SystemExit(1)
-
-    return praw.Reddit(
-        client_id=settings.reddit_client_id,
-        client_secret=settings.reddit_client_secret,
-        user_agent=settings.reddit_user_agent,
-    )
-
-
-def collect_reddit_posts(
-    reddit: praw.Reddit, query: str, limit: int = 20
-) -> list[PostData]:
-    """Collect Reddit posts matching the search query."""
-
-    console.print(f"🔍 Searching Reddit for '[cyan]{query}[/]'...")
-
-    posts: list[PostData] = []
-    try:
-        # Search across all Reddit
-        search_results = reddit.subreddit("all").search(
-            query, limit=limit, sort="relevance"
-        )
-
-        # Type alias for post data dictionary
-
-        for submission in search_results:
-            post_data: PostData = {
-                "id": submission.id,
-                "title": submission.title,
-                "selftext": submission.selftext,
-                "score": submission.score,
-                "url": submission.url,
-                "subreddit": str(submission.subreddit),
-                "source": "Reddit",
-                "claude_version": extract_claude_version(
-                    submission.title, submission.selftext
-                ),
-                "author": str(submission.author) if submission.author else "[deleted]",
-                "created_utc": submission.created_utc,
-                "num_comments": submission.num_comments,
-                "collected_at": datetime.now(timezone.utc).isoformat(),
-            }
-            posts.append(post_data)
-
-        console.print(f"✅ Found [bold green]{len(posts)}[/] posts")
-        return posts
-
-    except Exception as e:
-        console.print(f"❌ [bold red]Error collecting posts:[/] {e}")
-        return []
 
 
 def analyze_sentiment(
@@ -340,7 +255,9 @@ def format_table_row(
             content_color = (
                 "green"
                 if content_score > 0
-                else "red" if content_score < 0 else "yellow"
+                else "red"
+                if content_score < 0
+                else "yellow"
             )
             content_display = f"[{content_color}]{content_score:+.3f}[/]"
         else:
@@ -616,8 +533,11 @@ def main(
     try:
         # Setup
         console.print("🔧 [bold]Setting up...[/]")
-        reddit = setup_reddit()
         analyzer = SentimentIntensityAnalyzer()
+
+        # Initialize platforms
+        reddit_platform = RedditPlatform()
+        hackernews_platform = HackerNewsPlatform()
 
         # Create debug file if debug mode is enabled
         debug_file = None
@@ -635,8 +555,8 @@ def main(
                 f.write("=" * 80 + "\n")
 
         # Collect posts from both sources
-        reddit_posts = collect_reddit_posts(reddit, query, limit // 2)
-        hn_posts = collect_hackernews_posts(query, limit // 2)
+        reddit_posts = reddit_platform.collect_posts(query, limit // 2)
+        hn_posts = hackernews_platform.collect_posts(query, limit // 2)
         posts = reddit_posts + hn_posts
 
         if not posts:
