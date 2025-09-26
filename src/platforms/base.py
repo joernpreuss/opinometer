@@ -6,6 +6,7 @@ Defines the common interface that all platform-specific collectors must implemen
 """
 
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Any
 
 from rich.console import Console
@@ -93,6 +94,64 @@ class BasePlatform(ABC):
             Formatted source display string
         """
         pass
+
+    @abstractmethod
+    def format_title_with_urls(
+        self, title: str, original_url: str, discussion_url: str, post_data: PostData
+    ) -> str:
+        """
+        Format title with URLs based on platform-specific rules.
+
+        Args:
+            title: Post title
+            original_url: Original post URL
+            discussion_url: Discussion page URL
+            post_data: Full post data for context
+
+        Returns:
+            Formatted title with URLs
+        """
+        pass
+
+    def create_post_data(
+        self,
+        post_id: str,
+        title: str,
+        selftext: str,
+        score: int,
+        url: str,
+        author: str,
+        created_utc: float,
+        num_comments: int,
+        subreddit: str | None = None,
+    ) -> PostData:
+        """Create standardized post data structure."""
+        from version_extractor import extract_claude_version
+
+        return {
+            "id": post_id,
+            "title": title,
+            "selftext": selftext,
+            "score": score,
+            "url": url,
+            "subreddit": subreddit or self.name,
+            "source": self.name,
+            "claude_version": extract_claude_version(title, selftext),
+            "author": author,
+            "created_utc": created_utc,
+            "num_comments": num_comments,
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def log_success(self, posts_count: int) -> None:
+        """Log successful post collection."""
+        self.console.print(f"✅ Found [bold green]{posts_count}[/] {self.name} posts")
+
+    def log_error(self, error: Exception) -> None:
+        """Log error during post collection."""
+        self.console.print(
+            f"❌ [bold red]Error collecting {self.name} posts:[/] {error}"
+        )
 
     def __str__(self) -> str:
         """Return string representation of the platform."""

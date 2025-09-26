@@ -6,12 +6,9 @@ Provides functionality to search and collect posts from Hacker News
 that match specific topics for sentiment analysis.
 """
 
-from datetime import datetime, timezone
-
 import httpx
 
 from platforms.base import BasePlatform, PostData
-from version_extractor import extract_claude_version
 
 
 class HackerNewsPlatform(BasePlatform):
@@ -55,34 +52,27 @@ class HackerNewsPlatform(BasePlatform):
                 title = hit.get("title", "")
                 selftext = hit.get("story_text", "") or ""
 
-                post_data: PostData = {
-                    "id": f"hn_{hit.get('objectID', '')}",
-                    "title": title,
-                    "selftext": selftext,
-                    "score": hit.get("points", 0),
-                    "url": hit.get(
+                post_data = self.create_post_data(
+                    post_id=f"hn_{hit.get('objectID', '')}",
+                    title=title,
+                    selftext=selftext,
+                    score=hit.get("points", 0),
+                    url=hit.get(
                         "url",
-                        f"https://news.ycombinator.com/item?id={hit.get('objectID', '')}",
+                        f"https://news.ycombinator.com/item?id="
+                        f"{hit.get('objectID', '')}",
                     ),
-                    "subreddit": self.name,
-                    "source": self.name,
-                    "claude_version": extract_claude_version(title, selftext),
-                    "author": hit.get("author", "[deleted]"),
-                    "created_utc": hit.get("created_at_i", 0),
-                    "num_comments": hit.get("num_comments", 0),
-                    "collected_at": datetime.now(timezone.utc).isoformat(),
-                }
+                    author=hit.get("author", "[deleted]"),
+                    created_utc=hit.get("created_at_i", 0),
+                    num_comments=hit.get("num_comments", 0),
+                )
                 posts.append(post_data)
 
-            self.console.print(
-                f"✅ Found [bold green]{len(posts)}[/] {self.name} posts"
-            )
+            self.log_success(len(posts))
             return posts
 
         except Exception as e:
-            self.console.print(
-                f"❌ [bold red]Error collecting {self.name} posts:[/] {e}"
-            )
+            self.log_error(e)
             return []
 
     def should_analyze_url(self, url: str) -> bool:
@@ -105,3 +95,16 @@ class HackerNewsPlatform(BasePlatform):
     def format_source_display(self, post_data: PostData) -> str:
         """Format the source display for a Hacker News post."""
         return self.name
+
+    def format_title_with_urls(
+        self, title: str, original_url: str, discussion_url: str, post_data: PostData
+    ) -> str:
+        """Format title with URLs for Hacker News posts."""
+        # HackerNews: always show both discussion and article URL if different
+        if original_url != discussion_url:
+            return (
+                f"{title}\n[bright_black]{discussion_url}[/bright_black]"
+                f"\n[bright_black]{original_url}[/bright_black]"
+            )
+        else:
+            return f"{title}\n[bright_black]{discussion_url}[/bright_black]"

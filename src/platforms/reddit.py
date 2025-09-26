@@ -6,12 +6,9 @@ Provides functionality to search and collect posts from Reddit
 that match specific topics for sentiment analysis.
 """
 
-from datetime import datetime, timezone
-
 import httpx
 
 from platforms.base import BasePlatform, PostData
-from version_extractor import extract_claude_version
 
 
 class RedditPlatform(BasePlatform):
@@ -70,31 +67,24 @@ class RedditPlatform(BasePlatform):
                 title = post.get("title", "")
                 selftext = post.get("selftext", "") or ""
 
-                post_data: PostData = {
-                    "id": post.get("id", ""),
-                    "title": title,
-                    "selftext": selftext,
-                    "score": post.get("score", 0),
-                    "url": post.get("url", ""),
-                    "subreddit": post.get("subreddit", "unknown"),
-                    "source": self.name,
-                    "claude_version": extract_claude_version(title, selftext),
-                    "author": post.get("author", "[deleted]"),
-                    "created_utc": post.get("created_utc", 0),
-                    "num_comments": post.get("num_comments", 0),
-                    "collected_at": datetime.now(timezone.utc).isoformat(),
-                }
+                post_data = self.create_post_data(
+                    post_id=post.get("id", ""),
+                    title=title,
+                    selftext=selftext,
+                    score=post.get("score", 0),
+                    url=post.get("url", ""),
+                    author=post.get("author", "[deleted]"),
+                    created_utc=post.get("created_utc", 0),
+                    num_comments=post.get("num_comments", 0),
+                    subreddit=post.get("subreddit", "unknown"),
+                )
                 posts.append(post_data)
 
-            self.console.print(
-                f"✅ Found [bold green]{len(posts)}[/] {self.name} posts"
-            )
+            self.log_success(len(posts))
             return posts
 
         except Exception as e:
-            self.console.print(
-                f"❌ [bold red]Error collecting {self.name} posts:[/] {e}"
-            )
+            self.log_error(e)
             return []
 
     def should_analyze_url(self, url: str) -> bool:
@@ -131,3 +121,27 @@ class RedditPlatform(BasePlatform):
         """Format the source display for a Reddit post."""
         subreddit = post_data.get("subreddit", "unknown")
         return f"Reddit\n[bright_black]r/{subreddit}[/bright_black]"
+
+    def format_title_with_urls(
+        self, title: str, original_url: str, discussion_url: str, post_data: PostData
+    ) -> str:
+        """Format title with URLs for Reddit posts."""
+        selftext = post_data.get("selftext", "")
+
+        if not selftext:
+            # Link post: show discussion URL and external URL if different and
+            # not video/image
+            if (
+                original_url != discussion_url
+                and not original_url.startswith("https://v.redd.it/")
+                and not original_url.startswith("https://i.redd.it/")
+            ):
+                return (
+                    f"{title}\n[bright_black]{discussion_url}[/bright_black]"
+                    f"\n[bright_black]{original_url}[/bright_black]"
+                )
+            else:
+                return f"{title}\n[bright_black]{discussion_url}[/bright_black]"
+        else:
+            # Self-post: only show discussion URL (no external link)
+            return f"{title}\n[bright_black]{discussion_url}[/bright_black]"

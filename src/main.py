@@ -37,7 +37,8 @@ HELP_TEXT = """
   -d, --sort-by-date      Sort posts by date instead of sentiment
   -c, --analyze-content   Also analyze sentiment of linked content
   -s, --show-links        Show linked content URLs as third line in title
-  --debug-content         Show extracted content used for sentiment analysis (use with -c)
+  --debug-content         Show extracted content used for sentiment analysis
+                          (use with -c)
   -h, --help              Show this message and exit
 
 [bold]Examples:[/bold]
@@ -109,7 +110,7 @@ async def fetch_url_content(
                     f"Content type: {response.headers.get('content-type', 'unknown')}\n"
                     f"Extracted text length: {len(extracted_text)} chars\n"
                     f"Full extracted text:\n"
-                    f"{extracted_text if extracted_text else 'No text content extracted'}\n"
+                    f"{extracted_text or 'No text content extracted'}\n"
                     f"{'=' * 80}\n"
                 )
                 with open(debug_file, "a", encoding="utf-8") as f:
@@ -265,30 +266,12 @@ def format_table_row(
     else:
         display_url = url
 
-    # Format title with lighter URL on a new line
-    if show_links and url:
-        # For Reddit: check if it's a self-post (no external link) vs link post
-        if result["source"] == "Reddit" and not result.get("selftext", ""):
-            # Link post: show discussion URL and external URL if different and not video/image
-            if (
-                url != display_url
-                and not url.startswith("https://v.redd.it/")
-                and not url.startswith("https://i.redd.it/")
-            ):
-                title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]\n[bright_black]{url}[/bright_black]"
-            else:
-                title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
-        elif result["source"] == "Reddit" and result.get("selftext", ""):
-            # Self-post: only show discussion URL (no external link)
-            title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
-        elif result["source"] == "HackerNews":
-            # HackerNews: always show both discussion and article URL if different
-            if url != display_url:
-                title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]\n[bright_black]{url}[/bright_black]"
-            else:
-                title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
-        else:
-            title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
+    # Format title with URLs using platform method
+    if show_links and url and platform:
+        # Use platform-specific URL formatting
+        title_with_url = platform.format_title_with_urls(
+            title, url, display_url, result
+        )
     else:
         # Show title and discussion URL (2 lines)
         title_with_url = (
@@ -317,7 +300,9 @@ def format_table_row(
             content_color = (
                 "green"
                 if content_score > 0
-                else "red" if content_score < 0 else "yellow"
+                else "red"
+                if content_score < 0
+                else "yellow"
             )
             content_display = f"[{content_color}]{content_score:+.3f}[/]"
         else:
@@ -464,15 +449,18 @@ def print_summary(
     )
     table.add_row(
         "Positive",
-        f"[green]{positive_count} ({positive_count / len(sentiment_results) * 100:.1f}%)[/]",
+        f"[green]{positive_count} "
+        f"({positive_count / len(sentiment_results) * 100:.1f}%)[/]",
     )
     table.add_row(
         "Neutral",
-        f"[yellow]{neutral_count} ({neutral_count / len(sentiment_results) * 100:.1f}%)[/]",
+        f"[yellow]{neutral_count} "
+        f"({neutral_count / len(sentiment_results) * 100:.1f}%)[/]",
     )
     table.add_row(
         "Negative",
-        f"[red]{negative_count} ({negative_count / len(sentiment_results) * 100:.1f}%)[/]",
+        f"[red]{negative_count} "
+        f"({negative_count / len(sentiment_results) * 100:.1f}%)[/]",
     )
 
     console.print(table)
@@ -503,7 +491,8 @@ def print_summary(
     if calculated_width >= 60:
         title_width = calculated_width  # Use all available space
     else:
-        # If terminal is narrow, use a reasonable minimum but don't exceed terminal width
+        # If terminal is narrow, use a reasonable minimum but don't exceed
+        # terminal width
         title_width = max(25, calculated_width)
 
     posts_table = Table(title=table_title, show_header=True, width=terminal_width)
@@ -703,7 +692,8 @@ def main(
 
             # Pass 2: Analyze content for displayed posts only (in parallel)
             console.print(
-                f"🌐 [bold]Pass 2: Fetching content for {len(posts_to_analyze)} displayed posts in parallel...[/]"
+                f"🌐 [bold]Pass 2: Fetching content for {len(posts_to_analyze)} "
+                f"displayed posts in parallel...[/]"
             )
 
             import asyncio
@@ -748,7 +738,8 @@ def main(
 
             # Show analysis scope
             console.print(
-                f"[dim]📊 Analyzed {len(posts)} posts total, fetched content for {len(posts_to_analyze)} displayed posts[/]"
+                f"[dim]📊 Analyzed {len(posts)} posts total, "
+                f"fetched content for {len(posts_to_analyze)} displayed posts[/]"
             )
 
         else:
@@ -782,7 +773,8 @@ def main(
                         "created_utc": post["created_utc"],
                         "url": post["url"],
                         "sentiment": sentiment,
-                        "content_sentiment": None,  # Will be filled in parallel if needed
+                        # Will be filled in parallel if needed
+                        "content_sentiment": None,
                         "sentiment_label": sentiment_label(sentiment["compound"]),
                     }
                     all_sentiment_results.append(post_result)
@@ -824,7 +816,8 @@ def main(
                         result["content_sentiment"] = content_results[post_id]
 
                 console.print(
-                    f"[dim]📊 Analyzed {len(posts)} posts including {len(content_results)} with content analysis[/]"
+                    f"[dim]📊 Analyzed {len(posts)} posts including "
+                    f"{len(content_results)} with content analysis[/]"
                 )
 
             sentiment_results = all_sentiment_results
@@ -842,7 +835,10 @@ def main(
         save_results(posts, sentiment_results, query)
 
         console.print(
-            f"\n✅ [bold green]Analysis complete![/] Found [bold blue]{len(reddit_posts)}[/] Reddit + [bold blue]{len(hn_posts)}[/] HN posts about '[cyan]{query}[/]'"
+            "\n✅ [bold green]Analysis complete![/] "
+            + f"Found [bold blue]{len(reddit_posts)}[/] Reddit + "
+            + f"[bold blue]{len(hn_posts)}[/] HN posts about '"
+            + f"[cyan]{query}[/]'"
         )
 
         if debug_file:

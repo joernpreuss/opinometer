@@ -45,7 +45,8 @@ def extract_claude_version(title: str, text: str = "") -> str | None:
     if not matches:
         return None
 
-    # Sort by position (earliest first), then by pattern priority (index in patterns list)
+    # Sort by position (earliest first), then by pattern priority
+    # (index in patterns list)
     matches.sort(key=lambda x: (x[0], patterns.index(x[2])))
 
     # Return the earliest or highest priority match
