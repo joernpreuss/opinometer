@@ -12,8 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 import praw  # type: ignore
 import typer
+from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress
@@ -40,7 +42,7 @@ def show_help():
   -q, --query TEXT        Search query to analyze [default: Claude Code]
   -a, --all-posts         Show all posts instead of just top/bottom 5
   -l, --limit INTEGER     Total number of posts to collect [default: 60]
-  -d, --sort-by-date      Sort posts by date instead of sentiment
+  -d, --sort-by-date      Sort posts by date instead of sentiment\n  -c, --analyze-content   Also analyze sentiment of linked content
   -h, --help              Show this message and exit
 
 [bold]Examples:[/bold]
@@ -156,6 +158,34 @@ def analyze_sentiment(
     }
 
 
+def fetch_url_content(url: str, timeout: int = 10) -> str:
+    """Fetch and extract text content from a URL."""
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.get(url, follow_redirects=True)
+            response.raise_for_status()
+
+            # Parse HTML and extract text
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.extract()
+
+            # Get text and clean it up
+            text = soup.get_text()
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = " ".join(chunk for chunk in chunks if chunk)
+
+            # Limit text length for analysis (first 5000 chars)
+            return text[:5000] if text else ""
+
+    except Exception as e:
+        console.print(f"[dim]Failed to fetch {url}: {e}[/]")
+        return ""
+
+
 def sentiment_label(compound_score: float) -> str:
     """Convert compound score to human-readable label."""
     if compound_score >= 0.05:
@@ -181,8 +211,8 @@ def format_date(created_utc: float) -> str:
 
 
 def format_table_row(
-    result: dict[str, Any], title_width: int
-) -> tuple[str, str, str, str, str]:
+    result: dict[str, Any], title_width: int, analyze_content: bool = False
+) -> tuple[str, ...]:
     """Format a result row for table display."""
     score = result["sentiment"]["compound"]
     title = truncate_title(result["title"], title_width)
@@ -213,13 +243,38 @@ def format_table_row(
     version_display = result["claude_version"] or "N/A"
     date_display = format_date(result.get("created_utc", 0))
 
-    return (
-        f"[{score_color}]{score:+.3f}[/]",
-        version_display,
-        date_display,
-        source_display,
-        title_with_url,
-    )
+    if analyze_content:
+        # Format content sentiment
+        content_sentiment = result.get("content_sentiment")
+        if content_sentiment:
+            content_score = content_sentiment["compound"]
+            content_color = (
+                "green"
+                if content_score > 0
+                else "red"
+                if content_score < 0
+                else "yellow"
+            )
+            content_display = f"[{content_color}]{content_score:+.3f}[/]"
+        else:
+            content_display = "[dim]N/A[/]"
+
+        return (
+            f"[{score_color}]{score:+.3f}[/]",
+            content_display,
+            version_display,
+            date_display,
+            source_display,
+            title_with_url,
+        )
+    else:
+        return (
+            f"[{score_color}]{score:+.3f}[/]",
+            version_display,
+            date_display,
+            source_display,
+            title_with_url,
+        )
 
 
 def save_results(
@@ -299,6 +354,7 @@ def print_summary(
     query: str,
     show_all: bool = False,
     sort_by_date: bool = False,
+    analyze_content: bool = False,
 ):
     """Print a summary of sentiment analysis results."""
 
@@ -370,9 +426,12 @@ def print_summary(
     # Create top posts table with dynamic width
     terminal_width = console.size.width
     # Reserve space for borders, padding, and fixed columns
-    fixed_width = (
-        8 + 12 + 15 + 12 + 10  # Score + Version + Source + Date + padding/borders
-    )
+    base_fixed_width = (
+        8 + 12 + 15 + 11 + 10
+    )  # Score + Version + Source + Date + padding/borders
+    content_col_width = 7 if analyze_content else 0  # Content sentiment column
+    fixed_width = base_fixed_width + content_col_width
+
     # Calculate available width for title - use available space but ensure table fits
     calculated_width = terminal_width - fixed_width
     if calculated_width >= 60:
@@ -383,8 +442,10 @@ def print_summary(
 
     posts_table = Table(title=table_title, show_header=True, width=terminal_width)
     posts_table.add_column("Score", width=8, style="bold")
+    if analyze_content:
+        posts_table.add_column("Link", width=7, style="bold")
     posts_table.add_column("Version", width=12, style="cyan")
-    posts_table.add_column("Date", width=12, style="dim")
+    posts_table.add_column("Date", width=11, style="dim")
     posts_table.add_column("Source", width=15, style="dim")
     posts_table.add_column("Title", width=title_width, no_wrap=True)
 
@@ -393,17 +454,19 @@ def print_summary(
     if show_all:
         # Show all posts
         for result in sorted_results:
-            posts_table.add_row(*format_table_row(result, title_width))
+            posts_table.add_row(*format_table_row(result, title_width, analyze_content))
     else:
         # Show top 5 overall posts
         for result in sorted_results[:5]:
-            posts_table.add_row(*format_table_row(result, title_width))
+            posts_table.add_row(*format_table_row(result, title_width, analyze_content))
 
         # Show bottom 5 posts if available
         if len(sorted_results) > 5:
             posts_table.add_section()
             for result in sorted_results[-5:]:
-                posts_table.add_row(*format_table_row(result, title_width))
+                posts_table.add_row(
+                    *format_table_row(result, title_width, analyze_content)
+                )
 
     console.print(posts_table)
 
@@ -421,6 +484,12 @@ def main(
     ),
     sort_by_date: bool = typer.Option(
         False, "--sort-by-date", "-d", help="Sort posts by date instead of sentiment"
+    ),
+    analyze_content: bool = typer.Option(
+        False,
+        "--analyze-content",
+        "-c",
+        help="Also analyze sentiment of linked content",
     ),
     help_flag: bool = typer.Option(False, "--help", "-h", help="Show help and exit"),
 ):
@@ -456,36 +525,145 @@ def main(
             console.print("❌ [bold red]No posts found. Exiting.[/]")
             return
 
-        # Analyze sentiment with progress bar
-        console.print("🧠 [bold]Analyzing sentiment...[/]")
-        sentiment_results: list[Result] = []
+        # Two-pass analysis for efficiency
+        if analyze_content and not all_posts:
+            # Pass 1: Analyze titles only to find top/bottom posts
+            console.print("🧠 [bold]Pass 1: Analyzing titles...[/]")
+            title_results: list[Result] = []
 
-        with Progress() as progress:
-            task = progress.add_task("[cyan]Processing posts...", total=len(posts))
+            with Progress() as progress:
+                task = progress.add_task("[cyan]Processing titles...", total=len(posts))
 
-            for post in posts:
-                # Combine title and selftext for analysis
-                full_text = f"{post['title']} {post['selftext']}"
-                sentiment = analyze_sentiment(full_text, analyzer)
+                for post in posts:
+                    full_text = f"{post['title']} {post['selftext']}"
+                    sentiment = analyze_sentiment(full_text, analyzer)
 
-                result: Result = {
-                    "post_id": post["id"],
-                    "title": post["title"],
-                    "selftext": post["selftext"],
-                    "subreddit": post["subreddit"],
-                    "source": post["source"],
-                    "claude_version": post["claude_version"],
-                    "score": post["score"],
-                    "created_utc": post["created_utc"],
-                    "url": post["url"],
-                    "sentiment": sentiment,
-                    "sentiment_label": sentiment_label(sentiment["compound"]),
-                }
-                sentiment_results.append(result)
-                progress.update(task, advance=1)
+                    result: Result = {
+                        "post_id": post["id"],
+                        "title": post["title"],
+                        "selftext": post["selftext"],
+                        "subreddit": post["subreddit"],
+                        "source": post["source"],
+                        "claude_version": post["claude_version"],
+                        "score": post["score"],
+                        "created_utc": post["created_utc"],
+                        "url": post["url"],
+                        "sentiment": sentiment,
+                        "content_sentiment": None,
+                        "sentiment_label": sentiment_label(sentiment["compound"]),
+                    }
+                    title_results.append(result)
+                    progress.update(task, advance=1)
+
+            # Sort and get top/bottom posts for content analysis
+            if sort_by_date:
+                sorted_posts = sorted(
+                    title_results, key=lambda x: x["created_utc"], reverse=True
+                )
+            else:
+                sorted_posts = sorted(
+                    title_results,
+                    key=lambda x: x["sentiment"]["compound"],
+                    reverse=True,
+                )
+
+            # Get posts that will be displayed (top 5 + bottom 5)
+            posts_to_analyze = sorted_posts[:5]
+            if len(sorted_posts) > 5:
+                posts_to_analyze.extend(sorted_posts[-5:])
+
+            # Pass 2: Analyze content for displayed posts only
+            console.print(
+                f"🌐 [bold]Pass 2: Analyzing content for {len(posts_to_analyze)} displayed posts...[/]"
+            )
+
+            with Progress() as progress:
+                task = progress.add_task(
+                    "[cyan]Fetching content...", total=len(posts_to_analyze)
+                )
+
+                for result in posts_to_analyze:
+                    if result.get("url"):
+                        url = result["url"]
+                        if not (
+                            url.startswith("https://www.reddit.com/")
+                            or url.startswith("https://news.ycombinator.com/")
+                        ):
+                            content_text = fetch_url_content(url)
+                            if content_text:
+                                result["content_sentiment"] = analyze_sentiment(
+                                    content_text, analyzer
+                                )
+                    progress.update(task, advance=1)
+
+            sentiment_results = title_results
+
+            # Show analysis scope
+            console.print(
+                f"[dim]📊 Analyzed {len(posts)} posts total, fetched content for {len(posts_to_analyze)} displayed posts[/]"
+            )
+
+        else:
+            # Single-pass analysis (for -a flag or no content analysis)
+            analysis_msg = "🧠 [bold]Analyzing sentiment"
+            if analyze_content:
+                analysis_msg += " and fetching content"
+            analysis_msg += "...[/]"
+            console.print(analysis_msg)
+
+            all_sentiment_results: list[Result] = []
+
+            with Progress() as progress:
+                task = progress.add_task("[cyan]Processing posts...", total=len(posts))
+
+                for post in posts:
+                    # Combine title and selftext for analysis
+                    full_text = f"{post['title']} {post['selftext']}"
+                    sentiment = analyze_sentiment(full_text, analyzer)
+
+                    # Optionally analyze content sentiment
+                    content_sentiment = None
+                    if analyze_content and post.get("url"):
+                        # Skip Reddit/HN discussion URLs - we want the original link
+                        url = post["url"]
+                        if not (
+                            url.startswith("https://www.reddit.com/")
+                            or url.startswith("https://news.ycombinator.com/")
+                        ):
+                            content_text = fetch_url_content(url)
+                            if content_text:
+                                content_sentiment = analyze_sentiment(
+                                    content_text, analyzer
+                                )
+
+                    post_result: Result = {
+                        "post_id": post["id"],
+                        "title": post["title"],
+                        "selftext": post["selftext"],
+                        "subreddit": post["subreddit"],
+                        "source": post["source"],
+                        "claude_version": post["claude_version"],
+                        "score": post["score"],
+                        "created_utc": post["created_utc"],
+                        "url": post["url"],
+                        "sentiment": sentiment,
+                        "content_sentiment": content_sentiment,
+                        "sentiment_label": sentiment_label(sentiment["compound"]),
+                    }
+                    all_sentiment_results.append(post_result)
+                    progress.update(task, advance=1)
+
+            if analyze_content:
+                console.print(
+                    f"[dim]📊 Analyzed {len(posts)} posts including content analysis[/]"
+                )
+
+            sentiment_results = all_sentiment_results
 
         # Output results
-        print_summary(sentiment_results, query, all_posts, sort_by_date)
+        print_summary(
+            sentiment_results, query, all_posts, sort_by_date, analyze_content
+        )
         save_results(posts, sentiment_results, query)
 
         console.print(
