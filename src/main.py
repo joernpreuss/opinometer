@@ -130,6 +130,7 @@ async def fetch_url_content(
 async def fetch_content_for_posts(
     posts: list[dict[str, Any]],
     analyzer: SentimentIntensityAnalyzer,
+    platforms: dict[str, Any],
     debug: bool = False,
     debug_file: str | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
@@ -145,12 +146,10 @@ async def fetch_content_for_posts(
         nonlocal completed_count
 
         url = post.get("url", "")
-        if not url or (
-            url.startswith("https://www.reddit.com/")
-            or url.startswith("https://news.ycombinator.com/")
-            or url.startswith("https://v.redd.it/")
-            or url.startswith("https://i.redd.it/")
-        ):
+        source = post.get("source", "")
+        platform = platforms.get(source)
+
+        if not platform or not platform.should_analyze_url(url):
             completed_count += 1
             if progress_callback:
                 progress_callback(completed_count, total_posts)
@@ -242,6 +241,7 @@ def format_date(created_utc: float) -> str:
 def format_table_row(
     result: dict[str, Any],
     title_width: int,
+    platforms: dict[str, Any],
     analyze_content: bool = False,
     show_links: bool = False,
 ) -> tuple[str, ...]:
@@ -250,26 +250,18 @@ def format_table_row(
     title = truncate_title(result["title"], title_width)
     url = result.get("url", "")
 
-    # Generate discussion page URLs for both platforms
-    if result["source"] == "HackerNews" and result.get("post_id", "").startswith("hn_"):
-        # Extract HN object ID and create discussion URL
-        hn_id = result["post_id"].replace("hn_", "")
-        display_url = f"https://news.ycombinator.com/item?id={hn_id}"
-    elif result["source"] == "Reddit":
-        # Use the original Reddit URL (more verbose/descriptive), but skip video/image URLs
-        if url and (
-            url.startswith("https://v.redd.it/") or url.startswith("https://i.redd.it/")
-        ):
-            # For video/image posts, generate discussion URL instead
-            reddit_id = result.get("post_id", "")
-            subreddit = result.get("subreddit", "unknown")
-            display_url = (
-                f"https://www.reddit.com/r/{subreddit}/comments/{reddit_id}/"
-                if reddit_id
-                else ""
-            )
-        else:
-            display_url = url
+    # Generate discussion page URL using platform method
+    source = result["source"]
+    platform = platforms.get(source)
+    if platform:
+        # Create post data dict for platform method
+        post_data = {
+            "id": result.get("post_id", ""),
+            "url": url,
+            "subreddit": result.get("subreddit", "unknown"),
+            "source": source,
+        }
+        display_url = platform.get_discussion_url(post_data)
     else:
         display_url = url
 
@@ -307,10 +299,10 @@ def format_table_row(
 
     score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
 
-    # Format source with platform on first line, subreddit on second (for Reddit)
-
-    if result["source"] == "Reddit":
-        source_display = f"Reddit\n[bright_black]r/{result['subreddit']}[/bright_black]"
+    # Format source using platform method
+    if platform:
+        post_data = {"subreddit": result.get("subreddit", "unknown"), "source": source}
+        source_display = platform.format_source_display(post_data)
     else:
         source_display = result["source"]
 
@@ -426,6 +418,7 @@ def save_results(
 def print_summary(
     sentiment_results: list[dict[str, Any]],
     query: str,
+    platforms: dict[str, Any],
     show_all: bool = False,
     sort_by_date: bool = False,
     analyze_content: bool = False,
@@ -530,13 +523,17 @@ def print_summary(
         # Show all posts
         for result in sorted_results:
             posts_table.add_row(
-                *format_table_row(result, title_width, analyze_content, show_links)
+                *format_table_row(
+                    result, title_width, platforms, analyze_content, show_links
+                )
             )
     else:
         # Show top 5 overall posts
         for result in sorted_results[:5]:
             posts_table.add_row(
-                *format_table_row(result, title_width, analyze_content, show_links)
+                *format_table_row(
+                    result, title_width, platforms, analyze_content, show_links
+                )
             )
 
         # Show bottom 5 posts if available
@@ -544,7 +541,9 @@ def print_summary(
             posts_table.add_section()
             for result in sorted_results[-5:]:
                 posts_table.add_row(
-                    *format_table_row(result, title_width, analyze_content, show_links)
+                    *format_table_row(
+                        result, title_width, platforms, analyze_content, show_links
+                    )
                 )
 
     console.print(posts_table)
@@ -608,6 +607,12 @@ def main(
         # Initialize platforms
         reddit_platform = RedditPlatform()
         hackernews_platform = HackerNewsPlatform()
+
+        # Create platform lookup dictionary
+        platforms = {
+            "Reddit": reddit_platform,
+            "HackerNews": hackernews_platform,
+        }
 
         # Create debug file if debug mode is enabled
         debug_file = None
@@ -726,6 +731,7 @@ def main(
                     return await fetch_content_for_posts(
                         posts_for_content,
                         analyzer,
+                        platforms,
                         debug=debug_content,
                         debug_file=debug_file,
                         progress_callback=update_progress,
@@ -804,6 +810,7 @@ def main(
                         return await fetch_content_for_posts(
                             posts,
                             analyzer,
+                            platforms,
                             debug=debug_content,
                             debug_file=debug_file,
                             progress_callback=update_progress,
@@ -828,6 +835,7 @@ def main(
         print_summary(
             sentiment_results,
             query,
+            platforms,
             all_posts,
             sort_by_date,
             analyze_content,

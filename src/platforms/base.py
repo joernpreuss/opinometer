@@ -55,6 +55,45 @@ class BasePlatform(ABC):
         """Set up platform-specific configuration and authentication."""
         pass
 
+    @abstractmethod
+    def should_analyze_url(self, url: str) -> bool:
+        """
+        Check if a URL should be analyzed for content.
+
+        Args:
+            url: URL to check
+
+        Returns:
+            True if the URL should be analyzed, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def get_discussion_url(self, post_data: PostData) -> str:
+        """
+        Get the discussion URL for a post.
+
+        Args:
+            post_data: Post data dictionary
+
+        Returns:
+            Discussion URL for the post
+        """
+        pass
+
+    @abstractmethod
+    def format_source_display(self, post_data: PostData) -> str:
+        """
+        Format the source display for a post.
+
+        Args:
+            post_data: Post data dictionary
+
+        Returns:
+            Formatted source display string
+        """
+        pass
+
     def __str__(self) -> str:
         """Return string representation of the platform."""
         return self.name

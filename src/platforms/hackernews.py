@@ -84,3 +84,24 @@ class HackerNewsPlatform(BasePlatform):
                 f"❌ [bold red]Error collecting {self.name} posts:[/] {e}"
             )
             return []
+
+    def should_analyze_url(self, url: str) -> bool:
+        """Check if a URL should be analyzed for content."""
+        if not url:
+            return False
+
+        # Skip Hacker News internal URLs
+        return not url.startswith("https://news.ycombinator.com/")
+
+    def get_discussion_url(self, post_data: PostData) -> str:
+        """Get the discussion URL for a Hacker News post."""
+        post_id = post_data.get("id", "")
+        if post_id.startswith("hn_"):
+            # Extract HN object ID and create discussion URL
+            hn_id = post_id.replace("hn_", "")
+            return f"https://news.ycombinator.com/item?id={hn_id}"
+        return post_data.get("url", "")
+
+    def format_source_display(self, post_data: PostData) -> str:
+        """Format the source display for a Hacker News post."""
+        return self.name

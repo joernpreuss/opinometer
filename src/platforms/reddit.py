@@ -96,3 +96,38 @@ class RedditPlatform(BasePlatform):
                 f"❌ [bold red]Error collecting {self.name} posts:[/] {e}"
             )
             return []
+
+    def should_analyze_url(self, url: str) -> bool:
+        """Check if a URL should be analyzed for content."""
+        if not url:
+            return False
+
+        # Skip Reddit internal URLs and media files
+        return not (
+            url.startswith("https://www.reddit.com/")
+            or url.startswith("https://v.redd.it/")
+            or url.startswith("https://i.redd.it/")
+        )
+
+    def get_discussion_url(self, post_data: PostData) -> str:
+        """Get the discussion URL for a Reddit post."""
+        url = post_data.get("url", "")
+
+        # For video/image posts, generate discussion URL instead
+        if url and (
+            url.startswith("https://v.redd.it/") or url.startswith("https://i.redd.it/")
+        ):
+            reddit_id = post_data.get("id", "")
+            subreddit = post_data.get("subreddit", "unknown")
+            return (
+                f"https://www.reddit.com/r/{subreddit}/comments/{reddit_id}/"
+                if reddit_id
+                else ""
+            )
+        else:
+            return url
+
+    def format_source_display(self, post_data: PostData) -> str:
+        """Format the source display for a Reddit post."""
+        subreddit = post_data.get("subreddit", "unknown")
+        return f"Reddit\n[bright_black]r/{subreddit}[/bright_black]"
