@@ -8,6 +8,8 @@ Defines the common interface that all platform-specific collectors must implemen
 from abc import ABC, abstractmethod
 from typing import Any
 
+from rich.console import Console
+
 PostData = dict[str, Any]
 
 
@@ -17,6 +19,7 @@ class BasePlatform(ABC):
     def __init__(self, name: str):
         """Initialize the platform with a name."""
         self.name = name
+        self.console = Console()
 
     @abstractmethod
     async def collect_posts_async(self, query: str, limit: int = 20) -> list[PostData]:

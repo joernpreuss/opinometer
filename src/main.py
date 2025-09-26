@@ -10,7 +10,7 @@ import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 import typer
@@ -77,13 +77,13 @@ def analyze_sentiment(
     }
 
 
-def fetch_url_content(
+async def fetch_url_content(
     url: str, timeout: int = 10, debug: bool = False, debug_file: str | None = None
 ) -> str:
-    """Fetch and extract text content from a URL."""
+    """Fetch and extract text content from a URL asynchronously."""
     try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.get(url, follow_redirects=True)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(url, follow_redirects=True)
             response.raise_for_status()
 
             # Parse HTML and extract text
@@ -125,6 +125,76 @@ def fetch_url_content(
 
         console.print(f"[dim]Failed to fetch {url}: {e}[/]")
         return ""
+
+
+async def fetch_content_for_posts(
+    posts: list[dict[str, Any]],
+    analyzer: SentimentIntensityAnalyzer,
+    debug: bool = False,
+    debug_file: str | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> dict[str, dict[str, float]]:
+    """Fetch content for multiple posts in parallel and analyze sentiment."""
+    import asyncio
+
+    completed_count = 0
+    total_posts = len(posts)
+
+    async def process_post_content(post: dict[str, Any]) -> dict[str, Any] | None:
+        """Process content for a single post."""
+        nonlocal completed_count
+
+        url = post.get("url", "")
+        if not url or (
+            url.startswith("https://www.reddit.com/")
+            or url.startswith("https://news.ycombinator.com/")
+            or url.startswith("https://v.redd.it/")
+            or url.startswith("https://i.redd.it/")
+        ):
+            completed_count += 1
+            if progress_callback:
+                progress_callback(completed_count, total_posts)
+            return None
+
+        try:
+            content_text = await fetch_url_content(
+                url, debug=debug, debug_file=debug_file
+            )
+            if content_text:
+                content_sentiment = analyze_sentiment(content_text, analyzer)
+                result: dict[str, Any] | None = {
+                    "post_id": post["id"],
+                    "content_sentiment": content_sentiment,
+                }
+            else:
+                result = None
+        except Exception:
+            # Silently handle individual failures
+            result = None
+
+        completed_count += 1
+        if progress_callback:
+            progress_callback(completed_count, total_posts)
+        return result
+
+    # Create tasks for all posts that need content analysis
+    tasks = [process_post_content(post) for post in posts]
+
+    # Execute all tasks in parallel
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Filter out None results and exceptions, return mapping of post_id -> sentiment
+    content_results: dict[str, dict[str, float]] = {}
+    for result in results:
+        if (
+            result
+            and not isinstance(result, Exception)
+            and isinstance(result, dict)
+            and result.get("post_id")
+        ):
+            content_results[result["post_id"]] = result["content_sentiment"]
+
+    return content_results
 
 
 def sentiment_label(compound_score: float) -> str:
@@ -610,33 +680,47 @@ def main(
             if len(sorted_posts) > 5:
                 posts_to_analyze.extend(sorted_posts[-5:])
 
-            # Pass 2: Analyze content for displayed posts only
+            # Pass 2: Analyze content for displayed posts only (in parallel)
             console.print(
-                f"🌐 [bold]Pass 2: Analyzing content for {len(posts_to_analyze)} displayed posts...[/]"
+                f"🌐 [bold]Pass 2: Fetching content for {len(posts_to_analyze)} displayed posts in parallel...[/]"
             )
 
-            with Progress() as progress:
-                task = progress.add_task(
-                    "[cyan]Fetching content...", total=len(posts_to_analyze)
+            import asyncio
+
+            # Convert results back to post format for the parallel fetcher
+            posts_for_content: list[dict[str, Any]] = []
+            for result in posts_to_analyze:
+                posts_for_content.append(
+                    {"id": result["post_id"], "url": result["url"]}
                 )
 
-                for result in posts_to_analyze:
-                    if result.get("url"):
-                        url = result["url"]
-                        if not (
-                            url.startswith("https://www.reddit.com/")
-                            or url.startswith("https://news.ycombinator.com/")
-                            or url.startswith("https://v.redd.it/")
-                            or url.startswith("https://i.redd.it/")
-                        ):
-                            content_text = fetch_url_content(
-                                url, debug=debug_content, debug_file=debug_file
-                            )
-                            if content_text:
-                                result["content_sentiment"] = analyze_sentiment(
-                                    content_text, analyzer
-                                )
-                    progress.update(task, advance=1)
+            # Create progress tracking for async content fetching
+            with Progress() as progress:
+                task = progress.add_task(
+                    "[cyan]Fetching content...", total=len(posts_for_content)
+                )
+
+                def update_progress(completed: int, total: int):
+                    progress.update(task, completed=completed)
+
+                # Create an async wrapper to run the parallel content fetching
+                async def fetch_displayed_content():
+                    return await fetch_content_for_posts(
+                        posts_for_content,
+                        analyzer,
+                        debug=debug_content,
+                        debug_file=debug_file,
+                        progress_callback=update_progress,
+                    )
+
+                # Run the async content fetching
+                content_results = asyncio.run(fetch_displayed_content())
+
+            # Update the displayed posts with content sentiment
+            for result in posts_to_analyze:
+                post_id = result["post_id"]
+                if post_id in content_results:
+                    result["content_sentiment"] = content_results[post_id]
 
             sentiment_results = title_results
 
@@ -653,34 +737,17 @@ def main(
             analysis_msg += "...[/]"
             console.print(analysis_msg)
 
+            # Analyze title/selftext sentiment for all posts first
+            console.print("📝 [bold]Analyzing post titles and text...[/]")
             all_sentiment_results: list[Result] = []
 
             with Progress() as progress:
-                task = progress.add_task("[cyan]Processing posts...", total=len(posts))
+                task = progress.add_task("[cyan]Analyzing text...", total=len(posts))
 
                 for post in posts:
                     # Combine title and selftext for analysis
                     full_text = f"{post['title']} {post['selftext']}"
                     sentiment = analyze_sentiment(full_text, analyzer)
-
-                    # Optionally analyze content sentiment
-                    content_sentiment = None
-                    if analyze_content and post.get("url"):
-                        # Skip Reddit/HN discussion URLs - we want the original link
-                        url = post["url"]
-                        if not (
-                            url.startswith("https://www.reddit.com/")
-                            or url.startswith("https://news.ycombinator.com/")
-                            or url.startswith("https://v.redd.it/")
-                            or url.startswith("https://i.redd.it/")
-                        ):
-                            content_text = fetch_url_content(
-                                url, debug=debug_content, debug_file=debug_file
-                            )
-                            if content_text:
-                                content_sentiment = analyze_sentiment(
-                                    content_text, analyzer
-                                )
 
                     post_result: Result = {
                         "post_id": post["id"],
@@ -693,15 +760,48 @@ def main(
                         "created_utc": post["created_utc"],
                         "url": post["url"],
                         "sentiment": sentiment,
-                        "content_sentiment": content_sentiment,
+                        "content_sentiment": None,  # Will be filled in parallel if needed
                         "sentiment_label": sentiment_label(sentiment["compound"]),
                     }
                     all_sentiment_results.append(post_result)
                     progress.update(task, advance=1)
 
+            # Fetch content in parallel if requested
             if analyze_content:
+                import asyncio
+
+                console.print("🌐 [bold]Fetching linked content in parallel...[/]")
+
+                # Create progress tracking for async content fetching
+                with Progress() as progress:
+                    task = progress.add_task(
+                        "[cyan]Fetching content...", total=len(posts)
+                    )
+
+                    def update_progress(completed: int, total: int):
+                        progress.update(task, completed=completed)
+
+                    # Create an async wrapper to run the parallel content fetching
+                    async def fetch_all_content():
+                        return await fetch_content_for_posts(
+                            posts,
+                            analyzer,
+                            debug=debug_content,
+                            debug_file=debug_file,
+                            progress_callback=update_progress,
+                        )
+
+                    # Run the async content fetching
+                    content_results = asyncio.run(fetch_all_content())
+
+                # Update results with content sentiment
+                for result in all_sentiment_results:
+                    post_id = result["post_id"]
+                    if post_id in content_results:
+                        result["content_sentiment"] = content_results[post_id]
+
                 console.print(
-                    f"[dim]📊 Analyzed {len(posts)} posts including content analysis[/]"
+                    f"[dim]📊 Analyzed {len(posts)} posts including {len(content_results)} with content analysis[/]"
                 )
 
             sentiment_results = all_sentiment_results

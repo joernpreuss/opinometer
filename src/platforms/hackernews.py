@@ -9,12 +9,9 @@ that match specific topics for sentiment analysis.
 from datetime import datetime, timezone
 
 import httpx
-from rich.console import Console
 
 from platforms.base import BasePlatform, PostData
 from version_extractor import extract_claude_version
-
-console = Console()
 
 
 class HackerNewsPlatform(BasePlatform):
@@ -31,7 +28,7 @@ class HackerNewsPlatform(BasePlatform):
 
     async def collect_posts_async(self, query: str, limit: int = 20) -> list[PostData]:
         """Collect Hacker News posts matching the search query using async httpx."""
-        console.print(f"🔍 Searching {self.name} for '[cyan]{query}[/]'...")
+        self.console.print(f"🔍 Searching {self.name} for '[cyan]{query}[/]'...")
 
         posts: list[PostData] = []
 
@@ -77,9 +74,13 @@ class HackerNewsPlatform(BasePlatform):
                 }
                 posts.append(post_data)
 
-            console.print(f"✅ Found [bold green]{len(posts)}[/] {self.name} posts")
+            self.console.print(
+                f"✅ Found [bold green]{len(posts)}[/] {self.name} posts"
+            )
             return posts
 
         except Exception as e:
-            console.print(f"❌ [bold red]Error collecting {self.name} posts:[/] {e}")
+            self.console.print(
+                f"❌ [bold red]Error collecting {self.name} posts:[/] {e}"
+            )
             return []
