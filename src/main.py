@@ -317,9 +317,7 @@ def format_table_row(
             content_color = (
                 "green"
                 if content_score > 0
-                else "red"
-                if content_score < 0
-                else "yellow"
+                else "red" if content_score < 0 else "yellow"
             )
             content_display = f"[{content_color}]{content_score:+.3f}[/]"
         else:
@@ -609,7 +607,7 @@ def main(
         hackernews_platform = HackerNewsPlatform()
 
         # Create platform lookup dictionary
-        platforms = {
+        platforms: dict[str, RedditPlatform | HackerNewsPlatform] = {
             "Reddit": reddit_platform,
             "HackerNews": hackernews_platform,
         }
