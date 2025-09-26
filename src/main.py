@@ -146,6 +146,35 @@ def truncate_title(title: str, max_length: int = 67) -> str:
     return title[:max_length] + "..." if len(title) > max_length else title
 
 
+def format_date(created_utc: float) -> str:
+    """Format Unix timestamp to readable date string."""
+    try:
+        dt = datetime.fromtimestamp(created_utc, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d")
+    except (ValueError, OSError):
+        return "N/A"
+
+
+def format_table_row(result: dict[str, Any]) -> tuple[str, str, str, str, str]:
+    """Format a result row for table display."""
+    score = result["sentiment"]["compound"]
+    title = truncate_title(result["title"])
+    score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
+    source_display = (
+        f"r/{result['subreddit']}" if result["source"] == "Reddit" else result["source"]
+    )
+    version_display = result["claude_version"] or "N/A"
+    date_display = format_date(result.get("created_utc", 0))
+
+    return (
+        f"[{score_color}]{score:+.3f}[/]",
+        version_display,
+        date_display,
+        source_display,
+        title,
+    )
+
+
 def save_results(
     posts: list[dict[str, Any]], sentiment_results: list[dict[str, Any]], query: str
 ):
@@ -284,75 +313,36 @@ def print_summary(
     # Create top posts table with dynamic width
     terminal_width = console.size.width
     # Reserve space for borders, padding, and fixed columns
-    fixed_width = 8 + 12 + 15 + 10  # Score + Version + Source + padding/borders
-    title_width = max(30, terminal_width - fixed_width)  # At least 30 chars for title
+    fixed_width = (
+        8 + 12 + 15 + 12 + 10  # Score + Version + Source + Date + padding/borders
+    )
+    title_width = max(25, terminal_width - fixed_width)  # At least 25 chars for title
 
     posts_table = Table(
         title="🔍 Top Posts by Sentiment", show_header=True, width=terminal_width
     )
     posts_table.add_column("Score", width=8, style="bold")
-    posts_table.add_column("Title", width=title_width)
     posts_table.add_column("Version", width=12, style="cyan")
+    posts_table.add_column("Date", width=12, style="dim")
     posts_table.add_column("Source", width=15, style="dim")
+    posts_table.add_column("Title", width=title_width)
 
     posts_table.add_section()
 
     if show_all:
         # Show all posts
         for result in sorted_results:
-            score = result["sentiment"]["compound"]
-            title = truncate_title(result["title"])
-            score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
-            source_display = (
-                f"r/{result['subreddit']}"
-                if result["source"] == "Reddit"
-                else result["source"]
-            )
-            version_display = result["claude_version"] or "N/A"
-            posts_table.add_row(
-                f"[{score_color}]{score:+.3f}[/]",
-                title,
-                version_display,
-                source_display,
-            )
+            posts_table.add_row(*format_table_row(result))
     else:
         # Show top 5 overall posts
         for result in sorted_results[:5]:
-            score = result["sentiment"]["compound"]
-            title = truncate_title(result["title"])
-            score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
-            source_display = (
-                f"r/{result['subreddit']}"
-                if result["source"] == "Reddit"
-                else result["source"]
-            )
-            version_display = result["claude_version"] or "N/A"
-            posts_table.add_row(
-                f"[{score_color}]{score:+.3f}[/]",
-                title,
-                version_display,
-                source_display,
-            )
+            posts_table.add_row(*format_table_row(result))
 
         # Show bottom 5 posts if available
         if len(sorted_results) > 5:
             posts_table.add_section()
             for result in sorted_results[-5:]:
-                score = result["sentiment"]["compound"]
-                title = truncate_title(result["title"])
-                score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
-                source_display = (
-                    f"r/{result['subreddit']}"
-                    if result["source"] == "Reddit"
-                    else result["source"]
-                )
-                version_display = result["claude_version"] or "N/A"
-                posts_table.add_row(
-                    f"[{score_color}]{score:+.3f}[/]",
-                    title,
-                    version_display,
-                    source_display,
-                )
+                posts_table.add_row(*format_table_row(result))
 
     console.print(posts_table)
 
@@ -417,6 +407,7 @@ def main():
                     "source": post["source"],
                     "claude_version": post["claude_version"],
                     "score": post["score"],
+                    "created_utc": post["created_utc"],
                     "sentiment": sentiment,
                     "sentiment_label": sentiment_label(sentiment["compound"]),
                 }
