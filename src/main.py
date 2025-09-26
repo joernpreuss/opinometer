@@ -6,6 +6,7 @@ Collects Reddit posts about specific topics and analyzes sentiment using VADER.
 No database required - outputs to JSON/CSV files.
 """
 
+
 import csv
 import json
 from datetime import datetime, timezone
@@ -26,13 +27,7 @@ from config import Settings
 from hackernews import collect_hackernews_posts
 from version_extractor import extract_claude_version
 
-console = Console()
-app = typer.Typer(no_args_is_help=False)
-
-
-def show_help():
-    """Display help information."""
-    help_text = """
+HELP_TEXT = """
 [bold blue]Opinometer[/bold blue] - Multi-source sentiment analysis tool
 
 [bold]Usage:[/bold]
@@ -42,7 +37,10 @@ def show_help():
   -q, --query TEXT        Search query to analyze [default: Claude Code]
   -a, --all-posts         Show all posts instead of just top/bottom 5
   -l, --limit INTEGER     Total number of posts to collect [default: 60]
-  -d, --sort-by-date      Sort posts by date instead of sentiment\n  -c, --analyze-content   Also analyze sentiment of linked content
+  -d, --sort-by-date      Sort posts by date instead of sentiment
+  -c, --analyze-content   Also analyze sentiment of linked content
+  -s, --show-links        Show linked content URLs as third line in title
+  --debug-content         Show extracted content used for sentiment analysis (use with -c)
   -h, --help              Show this message and exit
 
 [bold]Examples:[/bold]
@@ -51,7 +49,13 @@ def show_help():
   uv run src/main.py -d -a                        # Sort by date, show all
   uv run src/main.py --query "Claude 4" --help    # This help message
 """
-    console.print(help_text)
+console = Console()
+app = typer.Typer(no_args_is_help=False)
+
+
+def show_help():
+    """Display help information."""
+    console.print(HELP_TEXT)
 
 
 # Type aliases
@@ -158,7 +162,9 @@ def analyze_sentiment(
     }
 
 
-def fetch_url_content(url: str, timeout: int = 10) -> str:
+def fetch_url_content(
+    url: str, timeout: int = 10, debug: bool = False, debug_file: str | None = None
+) -> str:
     """Fetch and extract text content from a URL."""
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -179,9 +185,29 @@ def fetch_url_content(url: str, timeout: int = 10) -> str:
             text = " ".join(chunk for chunk in chunks if chunk)
 
             # Limit text length for analysis (first 5000 chars)
-            return text[:5000] if text else ""
+            extracted_text = text[:5000] if text else ""
+
+            if debug and debug_file:
+                debug_entry = (
+                    f"\n🔍 Content Debug for: {url}\n"
+                    f"Response status: {response.status_code}\n"
+                    f"Content type: {response.headers.get('content-type', 'unknown')}\n"
+                    f"Extracted text length: {len(extracted_text)} chars\n"
+                    f"Full extracted text:\n"
+                    f"{extracted_text if extracted_text else 'No text content extracted'}\n"
+                    f"{'=' * 80}\n"
+                )
+                with open(debug_file, "a", encoding="utf-8") as f:
+                    f.write(debug_entry)
+
+            return extracted_text
 
     except Exception as e:
+        if debug and debug_file:
+            debug_entry = f"\n❌ Failed to fetch: {url}\nError: {e}\n{'=' * 80}\n"
+            with open(debug_file, "a", encoding="utf-8") as f:
+                f.write(debug_entry)
+
         console.print(f"[dim]Failed to fetch {url}: {e}[/]")
         return ""
 
@@ -202,16 +228,37 @@ def truncate_title(title: str, max_length: int) -> str:
 
 
 def format_date(created_utc: float) -> str:
-    """Format Unix timestamp to readable date string."""
+    """Format Unix timestamp to readable date string with color coding based on age."""
     try:
         dt = datetime.fromtimestamp(created_utc, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d")
+        date_str = dt.strftime("%Y-%m-%d")
+
+        # Calculate age in days
+        now = datetime.now(tz=timezone.utc)
+        age_days = (now - dt).days
+
+        # Color-code based on age
+        if age_days == 0:  # Today
+            return f"[white]{date_str}[/white]"
+        elif age_days <= 7:  # Within a week
+            return f"[bright_green]{date_str}[/bright_green]"
+        elif age_days <= 30:  # Within a month
+            return f"[green]{date_str}[/green]"
+        elif age_days <= 90:  # Within 3 months
+            return f"[yellow]{date_str}[/yellow]"
+        elif age_days <= 365:  # Within a year
+            return f"[red]{date_str}[/red]"
+        else:  # Older than a year
+            return f"[dim]{date_str}[/dim]"
     except (ValueError, OSError):
-        return "N/A"
+        return "[dim]N/A[/dim]"
 
 
 def format_table_row(
-    result: dict[str, Any], title_width: int, analyze_content: bool = False
+    result: dict[str, Any],
+    title_width: int,
+    analyze_content: bool = False,
+    show_links: bool = False,
 ) -> tuple[str, ...]:
     """Format a result row for table display."""
     score = result["sentiment"]["compound"]
@@ -223,18 +270,55 @@ def format_table_row(
         # Extract HN object ID and create discussion URL
         hn_id = result["post_id"].replace("hn_", "")
         display_url = f"https://news.ycombinator.com/item?id={hn_id}"
-    elif result["source"] == "Reddit" and result.get("post_id"):
-        # Create Reddit discussion URL using post ID
-        reddit_id = result["post_id"]
-        subreddit = result.get("subreddit", "unknown")
-        display_url = f"https://www.reddit.com/r/{subreddit}/comments/{reddit_id}/"
+    elif result["source"] == "Reddit":
+        # Use the original Reddit URL (more verbose/descriptive), but skip video/image URLs
+        if url and (
+            url.startswith("https://v.redd.it/") or url.startswith("https://i.redd.it/")
+        ):
+            # For video/image posts, generate discussion URL instead
+            reddit_id = result.get("post_id", "")
+            subreddit = result.get("subreddit", "unknown")
+            display_url = (
+                f"https://www.reddit.com/r/{subreddit}/comments/{reddit_id}/"
+                if reddit_id
+                else ""
+            )
+        else:
+            display_url = url
     else:
         display_url = url
 
     # Format title with lighter URL on a new line
-    title_with_url = (
-        f"{title}\n[bright_black]{display_url}[/bright_black]" if display_url else title
-    )
+    if show_links and url:
+        # For Reddit: check if it's a self-post (no external link) vs link post
+        if result["source"] == "Reddit" and not result.get("selftext", ""):
+            # Link post: show discussion URL and external URL if different and not video/image
+            if (
+                url != display_url
+                and not url.startswith("https://v.redd.it/")
+                and not url.startswith("https://i.redd.it/")
+            ):
+                title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]\n[bright_black]{url}[/bright_black]"
+            else:
+                title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
+        elif result["source"] == "Reddit" and result.get("selftext", ""):
+            # Self-post: only show discussion URL (no external link)
+            title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
+        elif result["source"] == "HackerNews":
+            # HackerNews: always show both discussion and article URL if different
+            if url != display_url:
+                title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]\n[bright_black]{url}[/bright_black]"
+            else:
+                title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
+        else:
+            title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
+    else:
+        # Show title and discussion URL (2 lines)
+        title_with_url = (
+            f"{title}\n[bright_black]{display_url}[/bright_black]"
+            if display_url
+            else title
+        )
 
     score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
 
@@ -358,6 +442,7 @@ def print_summary(
     show_all: bool = False,
     sort_by_date: bool = False,
     analyze_content: bool = False,
+    show_links: bool = False,
 ):
     """Print a summary of sentiment analysis results."""
 
@@ -448,7 +533,7 @@ def print_summary(
     if analyze_content:
         posts_table.add_column("Link", width=7, style="bold")
     posts_table.add_column("Version", width=12, style="cyan")
-    posts_table.add_column("Date", width=11, style="dim")
+    posts_table.add_column("Date", width=11)
     posts_table.add_column("Source", width=15)
     posts_table.add_column("Title", width=title_width, no_wrap=True)
 
@@ -457,18 +542,22 @@ def print_summary(
     if show_all:
         # Show all posts
         for result in sorted_results:
-            posts_table.add_row(*format_table_row(result, title_width, analyze_content))
+            posts_table.add_row(
+                *format_table_row(result, title_width, analyze_content, show_links)
+            )
     else:
         # Show top 5 overall posts
         for result in sorted_results[:5]:
-            posts_table.add_row(*format_table_row(result, title_width, analyze_content))
+            posts_table.add_row(
+                *format_table_row(result, title_width, analyze_content, show_links)
+            )
 
         # Show bottom 5 posts if available
         if len(sorted_results) > 5:
             posts_table.add_section()
             for result in sorted_results[-5:]:
                 posts_table.add_row(
-                    *format_table_row(result, title_width, analyze_content)
+                    *format_table_row(result, title_width, analyze_content, show_links)
                 )
 
     console.print(posts_table)
@@ -494,6 +583,17 @@ def main(
         "-c",
         help="Also analyze sentiment of linked content",
     ),
+    show_links: bool = typer.Option(
+        False,
+        "--show-links",
+        "-s",
+        help="Show linked content URLs as third line in title",
+    ),
+    debug_content: bool = typer.Option(
+        False,
+        "--debug-content",
+        help="Show extracted content used for sentiment analysis (use with -c)",
+    ),
     help_flag: bool = typer.Option(False, "--help", "-h", help="Show help and exit"),
 ):
     """Multi-source sentiment analysis with Reddit and Hacker News."""
@@ -518,6 +618,21 @@ def main(
         console.print("🔧 [bold]Setting up...[/]")
         reddit = setup_reddit()
         analyzer = SentimentIntensityAnalyzer()
+
+        # Create debug file if debug mode is enabled
+        debug_file = None
+        if debug_content:
+            from datetime import datetime
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_file = (
+                f"results/content_debug_{query.replace(' ', '_')}_{timestamp}.txt"
+            )
+            Path("results").mkdir(exist_ok=True)
+            with open(debug_file, "w", encoding="utf-8") as f:
+                f.write(f"Content Debug Log for query: '{query}'\n")
+                f.write(f"Generated at: {datetime.now().isoformat()}\n")
+                f.write("=" * 80 + "\n")
 
         # Collect posts from both sources
         reddit_posts = collect_reddit_posts(reddit, query, limit // 2)
@@ -591,8 +706,12 @@ def main(
                         if not (
                             url.startswith("https://www.reddit.com/")
                             or url.startswith("https://news.ycombinator.com/")
+                            or url.startswith("https://v.redd.it/")
+                            or url.startswith("https://i.redd.it/")
                         ):
-                            content_text = fetch_url_content(url)
+                            content_text = fetch_url_content(
+                                url, debug=debug_content, debug_file=debug_file
+                            )
                             if content_text:
                                 result["content_sentiment"] = analyze_sentiment(
                                     content_text, analyzer
@@ -632,8 +751,12 @@ def main(
                         if not (
                             url.startswith("https://www.reddit.com/")
                             or url.startswith("https://news.ycombinator.com/")
+                            or url.startswith("https://v.redd.it/")
+                            or url.startswith("https://i.redd.it/")
                         ):
-                            content_text = fetch_url_content(url)
+                            content_text = fetch_url_content(
+                                url, debug=debug_content, debug_file=debug_file
+                            )
                             if content_text:
                                 content_sentiment = analyze_sentiment(
                                     content_text, analyzer
@@ -665,13 +788,21 @@ def main(
 
         # Output results
         print_summary(
-            sentiment_results, query, all_posts, sort_by_date, analyze_content
+            sentiment_results,
+            query,
+            all_posts,
+            sort_by_date,
+            analyze_content,
+            show_links,
         )
         save_results(posts, sentiment_results, query)
 
         console.print(
             f"\n✅ [bold green]Analysis complete![/] Found [bold blue]{len(reddit_posts)}[/] Reddit + [bold blue]{len(hn_posts)}[/] HN posts about '[cyan]{query}[/]'"
         )
+
+        if debug_file:
+            console.print(f"🐛 [dim]Debug content saved to:[/] [cyan]{debug_file}[/]")
 
     except KeyboardInterrupt:
         console.print("\n❌ [bold red]Interrupted by user[/]")
