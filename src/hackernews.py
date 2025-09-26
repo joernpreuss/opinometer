@@ -13,6 +13,8 @@ from typing import Any
 import httpx
 from rich.console import Console
 
+from version_extractor import extract_claude_version
+
 console = Console()
 
 PostData = dict[str, Any]
@@ -45,11 +47,13 @@ async def collect_hackernews_posts_async(query: str, limit: int = 20) -> list[Po
             if not hit.get("title"):
                 continue
 
+            title = hit.get("title", "")
+            selftext = hit.get("story_text", "") or ""
+
             post_data: PostData = {
                 "id": f"hn_{hit.get('objectID', '')}",
-                "title": hit.get("title", ""),
-                "selftext": hit.get("story_text", "")
-                or "",  # Some stories have text content
+                "title": title,
+                "selftext": selftext,
                 "score": hit.get("points", 0),
                 "url": hit.get(
                     "url",
@@ -57,6 +61,7 @@ async def collect_hackernews_posts_async(query: str, limit: int = 20) -> list[Po
                 ),
                 "subreddit": "HackerNews",
                 "source": "HackerNews",
+                "claude_version": extract_claude_version(title, selftext),
                 "author": hit.get("author", "[deleted]"),
                 "created_utc": hit.get("created_at_i", 0),
                 "num_comments": hit.get("num_comments", 0),

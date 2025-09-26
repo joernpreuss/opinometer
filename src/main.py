@@ -22,6 +22,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ig
 
 from config import Settings
 from hackernews import collect_hackernews_posts
+from version_extractor import extract_claude_version
 
 console = Console()
 
@@ -95,6 +96,9 @@ def collect_reddit_posts(
                 "url": submission.url,
                 "subreddit": str(submission.subreddit),
                 "source": "Reddit",
+                "claude_version": extract_claude_version(
+                    submission.title, submission.selftext
+                ),
                 "author": str(submission.author) if submission.author else "[deleted]",
                 "created_utc": submission.created_utc,
                 "num_comments": submission.num_comments,
@@ -168,6 +172,7 @@ def save_results(
                 "title",
                 "subreddit",
                 "source",
+                "claude_version",
                 "score",
                 "compound",
                 "sentiment_label",
@@ -191,6 +196,7 @@ def save_results(
                     result["title"],
                     result["subreddit"],
                     result["source"],
+                    result["claude_version"],
                     result["score"],
                     result["sentiment"]["compound"],
                     result["sentiment_label"],
@@ -275,10 +281,18 @@ def print_summary(
         sentiment_results, key=lambda x: x["sentiment"]["compound"], reverse=True
     )
 
-    # Create top posts table
-    posts_table = Table(title="🔍 Top Posts by Sentiment", show_header=True)
+    # Create top posts table with dynamic width
+    terminal_width = console.size.width
+    # Reserve space for borders, padding, and fixed columns
+    fixed_width = 8 + 12 + 15 + 10  # Score + Version + Source + padding/borders
+    title_width = max(30, terminal_width - fixed_width)  # At least 30 chars for title
+
+    posts_table = Table(
+        title="🔍 Top Posts by Sentiment", show_header=True, width=terminal_width
+    )
     posts_table.add_column("Score", width=8, style="bold")
-    posts_table.add_column("Title", max_width=70)
+    posts_table.add_column("Title", width=title_width)
+    posts_table.add_column("Version", width=12, style="cyan")
     posts_table.add_column("Source", width=15, style="dim")
 
     posts_table.add_section()
@@ -294,8 +308,12 @@ def print_summary(
                 if result["source"] == "Reddit"
                 else result["source"]
             )
+            version_display = result["claude_version"] or "N/A"
             posts_table.add_row(
-                f"[{score_color}]{score:+.3f}[/]", title, source_display
+                f"[{score_color}]{score:+.3f}[/]",
+                title,
+                version_display,
+                source_display,
             )
     else:
         # Show top 5 overall posts
@@ -308,8 +326,12 @@ def print_summary(
                 if result["source"] == "Reddit"
                 else result["source"]
             )
+            version_display = result["claude_version"] or "N/A"
             posts_table.add_row(
-                f"[{score_color}]{score:+.3f}[/]", title, source_display
+                f"[{score_color}]{score:+.3f}[/]",
+                title,
+                version_display,
+                source_display,
             )
 
         # Show bottom 5 posts if available
@@ -321,11 +343,15 @@ def print_summary(
                 score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
                 source_display = (
                     f"r/{result['subreddit']}"
-                    if result["subreddit"] != "HackerNews"
-                    else result["subreddit"]
+                    if result["source"] == "Reddit"
+                    else result["source"]
                 )
+                version_display = result["claude_version"] or "N/A"
                 posts_table.add_row(
-                    f"[{score_color}]{score:+.3f}[/]", title, source_display
+                    f"[{score_color}]{score:+.3f}[/]",
+                    title,
+                    version_display,
+                    source_display,
                 )
 
     console.print(posts_table)
@@ -389,6 +415,7 @@ def main():
                     "selftext": post["selftext"],
                     "subreddit": post["subreddit"],
                     "source": post["source"],
+                    "claude_version": post["claude_version"],
                     "score": post["score"],
                     "sentiment": sentiment,
                     "sentiment_label": sentiment_label(sentiment["compound"]),
