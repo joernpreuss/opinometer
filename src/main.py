@@ -271,7 +271,7 @@ def print_summary(sentiment_results: list[dict[str, Any]], query: str):
 
     # Most positive
     posts_table.add_section()
-    for result in sorted_results[:3]:
+    for result in sorted_results[:5]:
         score = result["sentiment"]["compound"]
         title = (
             result["title"][:67] + "..."
@@ -283,10 +283,10 @@ def print_summary(sentiment_results: list[dict[str, Any]], query: str):
             f"[{score_color}]{score:+.3f}[/]", title, f"r/{result['subreddit']}"
         )
 
-    # Most negative (if we have more than 3 results)
-    if len(sorted_results) > 3:
+    # Most negative (if we have more than 5 results)
+    if len(sorted_results) > 5:
         posts_table.add_section()
-        for result in sorted_results[-3:]:
+        for result in sorted_results[-5:]:
             score = result["sentiment"]["compound"]
             title = (
                 result["title"][:67] + "..."
