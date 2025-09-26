@@ -6,7 +6,6 @@ Collects Reddit posts about specific topics and analyzes sentiment using VADER.
 No database required - outputs to JSON/CSV files.
 """
 
-import typer
 import csv
 import json
 from datetime import datetime, timezone
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import praw  # type: ignore
+import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress
@@ -166,9 +166,9 @@ def sentiment_label(compound_score: float) -> str:
         return "neutral"
 
 
-def truncate_title(title: str, max_length: int = 67) -> str:
-    """Truncate title to max length with ellipsis if needed."""
-    return title[:max_length] + "..." if len(title) > max_length else title
+def truncate_title(title: str, max_length: int) -> str:
+    """Truncate title to max length - let Rich handle ellipsis."""
+    return title[:max_length]  # No manual "..." - let Rich handle it
 
 
 def format_date(created_utc: float) -> str:
@@ -180,10 +180,32 @@ def format_date(created_utc: float) -> str:
         return "N/A"
 
 
-def format_table_row(result: dict[str, Any]) -> tuple[str, str, str, str, str]:
+def format_table_row(
+    result: dict[str, Any], title_width: int
+) -> tuple[str, str, str, str, str]:
     """Format a result row for table display."""
     score = result["sentiment"]["compound"]
-    title = truncate_title(result["title"])
+    title = truncate_title(result["title"], title_width)
+    url = result.get("url", "")
+
+    # Generate discussion page URLs for both platforms
+    if result["source"] == "HackerNews" and result.get("post_id", "").startswith("hn_"):
+        # Extract HN object ID and create discussion URL
+        hn_id = result["post_id"].replace("hn_", "")
+        display_url = f"https://news.ycombinator.com/item?id={hn_id}"
+    elif result["source"] == "Reddit" and result.get("post_id"):
+        # Create Reddit discussion URL using post ID
+        reddit_id = result["post_id"]
+        subreddit = result.get("subreddit", "unknown")
+        display_url = f"https://www.reddit.com/r/{subreddit}/comments/{reddit_id}/"
+    else:
+        display_url = url
+
+    # Format title with lighter URL on a new line
+    title_with_url = (
+        f"{title}\n[bright_black]{display_url}[/bright_black]" if display_url else title
+    )
+
     score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
     source_display = (
         f"r/{result['subreddit']}" if result["source"] == "Reddit" else result["source"]
@@ -196,7 +218,7 @@ def format_table_row(result: dict[str, Any]) -> tuple[str, str, str, str, str]:
         version_display,
         date_display,
         source_display,
-        title,
+        title_with_url,
     )
 
 
@@ -351,31 +373,37 @@ def print_summary(
     fixed_width = (
         8 + 12 + 15 + 12 + 10  # Score + Version + Source + Date + padding/borders
     )
-    title_width = max(25, terminal_width - fixed_width)  # At least 25 chars for title
+    # Calculate available width for title - use available space but ensure table fits
+    calculated_width = terminal_width - fixed_width
+    if calculated_width >= 60:
+        title_width = calculated_width  # Use all available space
+    else:
+        # If terminal is narrow, use a reasonable minimum but don't exceed terminal width
+        title_width = max(25, calculated_width)
 
     posts_table = Table(title=table_title, show_header=True, width=terminal_width)
     posts_table.add_column("Score", width=8, style="bold")
     posts_table.add_column("Version", width=12, style="cyan")
     posts_table.add_column("Date", width=12, style="dim")
     posts_table.add_column("Source", width=15, style="dim")
-    posts_table.add_column("Title", width=title_width)
+    posts_table.add_column("Title", width=title_width, no_wrap=True)
 
     posts_table.add_section()
 
     if show_all:
         # Show all posts
         for result in sorted_results:
-            posts_table.add_row(*format_table_row(result))
+            posts_table.add_row(*format_table_row(result, title_width))
     else:
         # Show top 5 overall posts
         for result in sorted_results[:5]:
-            posts_table.add_row(*format_table_row(result))
+            posts_table.add_row(*format_table_row(result, title_width))
 
         # Show bottom 5 posts if available
         if len(sorted_results) > 5:
             posts_table.add_section()
             for result in sorted_results[-5:]:
-                posts_table.add_row(*format_table_row(result))
+                posts_table.add_row(*format_table_row(result, title_width))
 
     console.print(posts_table)
 
@@ -449,6 +477,7 @@ def main(
                     "claude_version": post["claude_version"],
                     "score": post["score"],
                     "created_utc": post["created_utc"],
+                    "url": post["url"],
                     "sentiment": sentiment,
                     "sentiment_label": sentiment_label(sentiment["compound"]),
                 }
