@@ -624,9 +624,27 @@ def main(
                 f.write(f"Generated at: {datetime.now().isoformat()}\n")
                 f.write("=" * 80 + "\n")
 
-        # Collect posts from both sources
-        reddit_posts = reddit_platform.collect_posts(query, limit // 2)
-        hn_posts = hackernews_platform.collect_posts(query, limit // 2)
+        # Collect posts from both sources in parallel
+        console.print(
+            "🔍 [bold]Collecting posts from Reddit and HackerNews in parallel...[/]"
+        )
+
+        async def collect_all_posts():
+            """Collect posts from both platforms concurrently."""
+            import asyncio
+
+            # Run both platform collections concurrently
+            reddit_task = reddit_platform.collect_posts_async(query, limit // 2)
+            hn_task = hackernews_platform.collect_posts_async(query, limit // 2)
+
+            # Wait for both to complete
+            reddit_posts, hn_posts = await asyncio.gather(reddit_task, hn_task)
+            return reddit_posts, hn_posts
+
+        # Execute parallel collection
+        import asyncio
+
+        reddit_posts, hn_posts = asyncio.run(collect_all_posts())
         posts = reddit_posts + hn_posts
 
         if not posts:
