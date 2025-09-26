@@ -6,7 +6,7 @@ Collects Reddit posts about specific topics and analyzes sentiment using VADER.
 No database required - outputs to JSON/CSV files.
 """
 
-import argparse
+import typer
 import csv
 import json
 from datetime import datetime, timezone
@@ -25,10 +25,10 @@ from hackernews import collect_hackernews_posts
 from version_extractor import extract_claude_version
 
 console = Console()
+app = typer.Typer(no_args_is_help=False)
 
-
+# Type aliases
 Result = dict[str, Any]
-
 PostData = dict[str, Any]
 
 
@@ -347,17 +347,19 @@ def print_summary(
     console.print(posts_table)
 
 
-def main():
-    """Main function - orchestrates the sentiment analysis pipeline."""
-
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description="Multi-source sentiment analysis with Reddit and Hacker News"
-    )
-    parser.add_argument(
-        "--all", action="store_true", help="Show all posts instead of just top/bottom 5"
-    )
-    args = parser.parse_args()
+@app.callback(invoke_without_command=True)
+def main(
+    query: str = typer.Option(
+        "Claude Code", "--query", "-q", help="Search query to analyze"
+    ),
+    all_posts: bool = typer.Option(
+        False, "--all-posts", "-a", help="Show all posts instead of just top/bottom 5"
+    ),
+    limit: int = typer.Option(
+        60, "--limit", "-l", help="Total number of posts to collect"
+    ),
+):
+    """Multi-source sentiment analysis with Reddit and Hacker News."""
 
     console.print(
         Panel.fit(
@@ -368,9 +370,7 @@ def main():
         )
     )
 
-    # Configuration
-    query = "Claude Code"
-    limit = 60
+    # Configuration from CLI arguments
 
     try:
         # Setup
@@ -415,7 +415,7 @@ def main():
                 progress.update(task, advance=1)
 
         # Output results
-        print_summary(sentiment_results, query, args.all)
+        print_summary(sentiment_results, query, all_posts)
         save_results(posts, sentiment_results, query)
 
         console.print(
@@ -429,4 +429,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    app()
