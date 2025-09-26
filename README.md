@@ -13,10 +13,10 @@ Opinometer monitors sentiment about specific topics (like "Claude Code") by:
 ## Features
 
 - **Multi-source data collection**: Reddit (via PRAW) and Hacker News APIs
-- **Multiple sentiment models**: VADER, TextBlob, and Hugging Face transformers
-- **Time-series analysis**: Track sentiment changes over days, weeks, and months
-- **No API keys required**: Uses free, local sentiment analysis models
-- **Extensible architecture**: Easy to add new sources and analysis methods
+- **Sentiment analysis**: VADER sentiment analysis engine
+- **No API keys required for HN**: Hacker News uses free Algolia search API
+- **Beautiful console output**: Rich library for colorful tables and progress bars
+- **Data export**: Results saved to JSON and CSV formats
 
 ## Quick Start (Simple Prototype)
 
@@ -55,7 +55,7 @@ uv run src/main.py
 ```
 
 This will:
-- Search Reddit for "Claude Code" posts
+- Search Reddit and Hacker News for "Claude Code" posts
 - Analyze sentiment using VADER
 - Show summary statistics
 - Save results to `results/` directory
@@ -67,28 +67,33 @@ This will:
 ==================================================
 🔧 Setting up...
 🔍 Searching Reddit for 'Claude Code'...
-✅ Found 25 posts
+✅ Found 12 posts
+🔍 Searching Hacker News for 'Claude Code'...
+✅ Found 12 Hacker News posts
 🧠 Analyzing sentiment...
 
 📈 Sentiment Analysis Summary for 'Claude Code':
-   Total posts analyzed: 25
-   Average sentiment: 0.342
-   Positive: 18 (72.0%)
-   Neutral:  4 (16.0%)
-   Negative: 3 (12.0%)
+   Total posts analyzed: 24
+   Average sentiment: 0.119
+   Positive: 7 (29.2%)
+   Neutral: 13 (54.2%)
+   Negative: 4 (16.7%)
 
 🔍 Top posts by sentiment:
    Most Positive:
-     +0.927 - Claude Code completely transformed my development workflow
-     +0.884 - Amazing new features in the latest Claude Code update
-     +0.743 - Claude Code's AI assistance is incredible for debugging
+     +0.985 - Just tried to use Claude Code again (r/Anthropic)
+     +0.973 - The Claude Code Divide: Those Who Know vs Those Who Don't (r/ClaudeAI)
+     +0.972 - I blew $417 on Claude Code to build a word game (r/ClaudeAI)
+     +0.963 - Built with Claude Code - now scared because people use it (r/ClaudeAI)
+     +0.888 - Claude Code weekly rate limits (r/hackernews)
 
    Most Negative:
-     -0.612 - Claude Code crashes frequently on my system
-     -0.431 - Having issues with Claude Code authentication
-     -0.298 - Claude Code could use better documentation
+     -0.374 - Goodbye Claude Code (r/ClaudeCode)
+     -0.726 - I'm DONE with Claude Code, good alternatives? (r/Anthropic)
+     -0.842 - Claude code going downhill. (r/LLM)
+     -0.920 - Claude Code is amazing — until it isn't! (r/ClaudeAI)
 
-✅ Analysis complete! Found 25 posts about 'Claude Code'
+✅ Analysis complete! Found 12 Reddit + 12 HN posts about 'Claude Code'
 💾 Saved results:
   📄 Posts: results/posts_Claude_Code_20250925_143052.json
   📊 Sentiment: results/sentiment_Claude_Code_20250925_143052.csv
@@ -112,11 +117,11 @@ opinometer/
 
 ## Development Status
 
-🚧 **Prototype Phase** - Simple Reddit + VADER prototype is working!
+🚧 **Prototype Phase** - Multi-source Reddit + Hacker News + VADER prototype is working!
 
 ### Next Steps
 
-- [ ] Add Hacker News data source
+- [x] Add Hacker News data source ✅
 - [ ] Database integration with SQLModel
 - [ ] Web API with FastAPI
 - [ ] Advanced sentiment models (transformers)
@@ -125,9 +130,9 @@ opinometer/
 
 ### Roadmap
 
-- [ ] **Phase 1**: Simple Reddit + VADER prototype ✅
+- [x] **Phase 1**: Multi-source Reddit + Hacker News + VADER prototype ✅
 - [ ] **Phase 2**: Database integration and web API
-- [ ] **Phase 3**: Hacker News integration
+- [ ] **Phase 3**: Advanced sentiment models (transformers)
 - [ ] **Phase 4**: Advanced analytics and visualization
 - [ ] **Phase 5**: Real-time monitoring and alerts
 

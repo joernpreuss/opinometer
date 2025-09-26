@@ -6,6 +6,7 @@ Collects Reddit posts about specific topics and analyzes sentiment using VADER.
 No database required - outputs to JSON/CSV files.
 """
 
+import argparse
 import csv
 import json
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ from rich.table import Table
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore
 
 from config import Settings
+from hackernews import collect_hackernews_posts
 
 console = Console()
 
@@ -92,6 +94,7 @@ def collect_reddit_posts(
                 "score": submission.score,
                 "url": submission.url,
                 "subreddit": str(submission.subreddit),
+                "source": "Reddit",
                 "author": str(submission.author) if submission.author else "[deleted]",
                 "created_utc": submission.created_utc,
                 "num_comments": submission.num_comments,
@@ -134,6 +137,11 @@ def sentiment_label(compound_score: float) -> str:
         return "neutral"
 
 
+def truncate_title(title: str, max_length: int = 67) -> str:
+    """Truncate title to max length with ellipsis if needed."""
+    return title[:max_length] + "..." if len(title) > max_length else title
+
+
 def save_results(
     posts: list[dict[str, Any]], sentiment_results: list[dict[str, Any]], query: str
 ):
@@ -159,6 +167,7 @@ def save_results(
                 "post_id",
                 "title",
                 "subreddit",
+                "source",
                 "score",
                 "compound",
                 "sentiment_label",
@@ -181,6 +190,7 @@ def save_results(
                     result["post_id"],
                     result["title"],
                     result["subreddit"],
+                    result["source"],
                     result["score"],
                     result["sentiment"]["compound"],
                     result["sentiment_label"],
@@ -202,7 +212,9 @@ def save_results(
     )
 
 
-def print_summary(sentiment_results: list[dict[str, Any]], query: str):
+def print_summary(
+    sentiment_results: list[dict[str, Any]], query: str, show_all: bool = False
+):
     """Print a summary of sentiment analysis results."""
 
     if not sentiment_results:
@@ -267,36 +279,54 @@ def print_summary(sentiment_results: list[dict[str, Any]], query: str):
     posts_table = Table(title="🔍 Top Posts by Sentiment", show_header=True)
     posts_table.add_column("Score", width=8, style="bold")
     posts_table.add_column("Title", max_width=70)
-    posts_table.add_column("Subreddit", width=15, style="dim")
+    posts_table.add_column("Source", width=15, style="dim")
 
-    # Most positive
     posts_table.add_section()
-    for result in sorted_results[:5]:
-        score = result["sentiment"]["compound"]
-        title = (
-            result["title"][:67] + "..."
-            if len(result["title"]) > 67
-            else result["title"]
-        )
-        score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
-        posts_table.add_row(
-            f"[{score_color}]{score:+.3f}[/]", title, f"r/{result['subreddit']}"
-        )
 
-    # Most negative (if we have more than 5 results)
-    if len(sorted_results) > 5:
-        posts_table.add_section()
-        for result in sorted_results[-5:]:
+    if show_all:
+        # Show all posts
+        for result in sorted_results:
             score = result["sentiment"]["compound"]
-            title = (
-                result["title"][:67] + "..."
-                if len(result["title"]) > 67
-                else result["title"]
-            )
+            title = truncate_title(result["title"])
             score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
-            posts_table.add_row(
-                f"[{score_color}]{score:+.3f}[/]", title, f"r/{result['subreddit']}"
+            source_display = (
+                f"r/{result['subreddit']}"
+                if result["source"] == "Reddit"
+                else result["source"]
             )
+            posts_table.add_row(
+                f"[{score_color}]{score:+.3f}[/]", title, source_display
+            )
+    else:
+        # Show top 5 overall posts
+        for result in sorted_results[:5]:
+            score = result["sentiment"]["compound"]
+            title = truncate_title(result["title"])
+            score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
+            source_display = (
+                f"r/{result['subreddit']}"
+                if result["source"] == "Reddit"
+                else result["source"]
+            )
+            posts_table.add_row(
+                f"[{score_color}]{score:+.3f}[/]", title, source_display
+            )
+
+        # Show bottom 5 posts if available
+        if len(sorted_results) > 5:
+            posts_table.add_section()
+            for result in sorted_results[-5:]:
+                score = result["sentiment"]["compound"]
+                title = truncate_title(result["title"])
+                score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
+                source_display = (
+                    f"r/{result['subreddit']}"
+                    if result["subreddit"] != "HackerNews"
+                    else result["subreddit"]
+                )
+                posts_table.add_row(
+                    f"[{score_color}]{score:+.3f}[/]", title, source_display
+                )
 
     console.print(posts_table)
 
@@ -304,10 +334,19 @@ def print_summary(sentiment_results: list[dict[str, Any]], query: str):
 def main():
     """Main function - orchestrates the sentiment analysis pipeline."""
 
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Multi-source sentiment analysis with Reddit and Hacker News"
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="Show all posts instead of just top/bottom 5"
+    )
+    args = parser.parse_args()
+
     console.print(
         Panel.fit(
             "[bold blue]🎯 Opinometer Simple Prototype[/]\n\n"
-            "[dim]Reddit sentiment analysis with VADER[/]",
+            "[dim]Multi-source sentiment analysis with VADER[/]",
             title="[bold blue]Opinometer[/]",
             border_style="blue",
         )
@@ -315,7 +354,7 @@ def main():
 
     # Configuration
     query = "Claude Code"
-    limit = 25
+    limit = 60
 
     try:
         # Setup
@@ -323,8 +362,10 @@ def main():
         reddit = setup_reddit()
         analyzer = SentimentIntensityAnalyzer()
 
-        # Collect posts
-        posts = collect_reddit_posts(reddit, query, limit)
+        # Collect posts from both sources
+        reddit_posts = collect_reddit_posts(reddit, query, limit // 2)
+        hn_posts = collect_hackernews_posts(query, limit // 2)
+        posts = reddit_posts + hn_posts
 
         if not posts:
             console.print("❌ [bold red]No posts found. Exiting.[/]")
@@ -347,6 +388,7 @@ def main():
                     "title": post["title"],
                     "selftext": post["selftext"],
                     "subreddit": post["subreddit"],
+                    "source": post["source"],
                     "score": post["score"],
                     "sentiment": sentiment,
                     "sentiment_label": sentiment_label(sentiment["compound"]),
@@ -355,11 +397,11 @@ def main():
                 progress.update(task, advance=1)
 
         # Output results
-        print_summary(sentiment_results, query)
+        print_summary(sentiment_results, query, args.all)
         save_results(posts, sentiment_results, query)
 
         console.print(
-            f"\n✅ [bold green]Analysis complete![/] Found [bold blue]{len(posts)}[/] posts about '[cyan]{query}[/]'"
+            f"\n✅ [bold green]Analysis complete![/] Found [bold blue]{len(reddit_posts)}[/] Reddit + [bold blue]{len(hn_posts)}[/] HN posts about '[cyan]{query}[/]'"
         )
 
     except KeyboardInterrupt:
