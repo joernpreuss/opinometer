@@ -237,9 +237,14 @@ def format_table_row(
     )
 
     score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
-    source_display = (
-        f"r/{result['subreddit']}" if result["source"] == "Reddit" else result["source"]
-    )
+
+    # Format source with platform on first line, subreddit on second (for Reddit)
+
+    if result["source"] == "Reddit":
+        source_display = f"Reddit\n[bright_black]r/{result['subreddit']}[/bright_black]"
+    else:
+        source_display = result["source"]
+
     version_display = result["claude_version"] or "N/A"
     date_display = format_date(result.get("created_utc", 0))
 
@@ -251,9 +256,7 @@ def format_table_row(
             content_color = (
                 "green"
                 if content_score > 0
-                else "red"
-                if content_score < 0
-                else "yellow"
+                else "red" if content_score < 0 else "yellow"
             )
             content_display = f"[{content_color}]{content_score:+.3f}[/]"
         else:
@@ -446,7 +449,7 @@ def print_summary(
         posts_table.add_column("Link", width=7, style="bold")
     posts_table.add_column("Version", width=12, style="cyan")
     posts_table.add_column("Date", width=11, style="dim")
-    posts_table.add_column("Source", width=15, style="dim")
+    posts_table.add_column("Source", width=15)
     posts_table.add_column("Title", width=title_width, no_wrap=True)
 
     posts_table.add_section()
