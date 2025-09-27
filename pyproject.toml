@@ -10,6 +10,10 @@ dependencies = [
     "rich==14.1.0",
     "typer==0.15.1",
     "vadersentiment==3.3.2",
+    "sqlmodel==0.0.22",
+    "psycopg2-binary==2.9.10",
+    "alembic==1.14.0",
+    "pydantic-settings==2.6.1",
 ]
 
 [dependency-groups]
