@@ -232,19 +232,22 @@ def format_date(created_utc: float) -> str:
         elif age_days <= 30:
             relative = "last month"
         elif age_days <= 90:
-            relative = "3 months ago"
+            relative = "3 months"
         elif age_days <= 365:
             relative = "this year"
         else:
-            relative = f"{age_days // 365}y ago"
+            years = age_days // 365
+            relative = f"{years} year" if years == 1 else f"{years} years"
 
-        # Color-code based on age (darker colors, no dim)
+        # Color-code based on age
         if age_days == 0:  # Today
-            return f"{date_str}\n[bright_black]{relative}[/bright_black]"
+            return f"[bright_white]{date_str}[/bright_white]\n[bright_black]{relative}[/bright_black]"
         elif age_days <= 7:  # Within a week
             return f"[green]{date_str}[/green]\n[bright_black]{relative}[/bright_black]"
+        elif age_days <= 30:  # Within a month
+            return f"[yellow]{date_str}[/yellow]\n[bright_black]{relative}[/bright_black]"
         else:  # Older
-            return f"{date_str}\n[bright_black]{relative}[/bright_black]"
+            return f"[dim]{date_str}[/dim]\n[bright_black]{relative}[/bright_black]"
     except (ValueError, OSError):
         return "[dim]N/A[/dim]"
 
@@ -329,8 +332,8 @@ def format_table_row(
             f"[{title_color}]{title_score:+.3f}[/]",
             post_score_display,
             link_score_display,
-            version_display,
             date_display,
+            version_display,
             source_display,
             title_with_url,
         )
@@ -338,8 +341,8 @@ def format_table_row(
         return (
             f"[{title_color}]{title_score:+.3f}[/]",
             post_score_display,
-            version_display,
             date_display,
+            version_display,
             source_display,
             title_with_url,
         )
@@ -500,8 +503,8 @@ def print_summary(
     terminal_width = console.size.width
     # Reserve space for borders, padding, and fixed columns
     base_fixed_width = (
-        8 + 8 + 12 + 15 + 11 + 10
-    )  # Title Score + Post Score + Version + Source + Date + padding/borders
+        8 + 8 + 12 + 15 + 12 + 10
+    )  # Title Sentmt + Post Sentmt + Date + Version + Source + padding/borders
     link_col_width = 8 if analyze_content else 0  # Link sentiment column
     fixed_width = base_fixed_width + link_col_width
 
@@ -515,12 +518,12 @@ def print_summary(
         title_width = max(25, calculated_width)
 
     posts_table = Table(title=table_title, show_header=True, width=terminal_width)
-    posts_table.add_column("Title\nScore", width=8, style="bold")
-    posts_table.add_column("Post\nScore", width=8, style="bold")
+    posts_table.add_column("Title\nSentmt", width=8, style="bold")
+    posts_table.add_column("Post\nSentmt", width=8, style="bold")
     if analyze_content:
-        posts_table.add_column("Link\nScore", width=8, style="bold")
+        posts_table.add_column("Link\nSentmt", width=8, style="bold")
+    posts_table.add_column("Date", width=12)
     posts_table.add_column("Version", width=12, style="cyan")
-    posts_table.add_column("Date", width=11)
     posts_table.add_column("Source", width=15)
     posts_table.add_column("Title", width=title_width, no_wrap=True)
 
