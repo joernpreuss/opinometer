@@ -35,7 +35,7 @@ def test_connection():
     """Test database connection."""
     try:
         with Session(engine) as session:
-            session.exec(text("SELECT 1"))
+            session.exec(text("SELECT 1"))  # type: ignore[arg-type]
         return True
     except Exception as e:
         print(f"Database connection failed: {e}")

@@ -44,7 +44,7 @@ def init():
                 if statement.startswith("--") or not statement:
                     continue
                 try:
-                    session.exec(text(statement))
+                    session.exec(text(statement))  # type: ignore[call-overload]
                 except Exception as e:
                     # Some constraints might already exist, that's ok
                     console.print(f"[dim]Note: {statement[:50]}... -> {e}[/]")
@@ -102,7 +102,7 @@ def reset():
                 if statement.startswith("--") or not statement:
                     continue
                 try:
-                    session.exec(text(statement))
+                    session.exec(text(statement))  # type: ignore[call-overload]
                 except Exception as e:
                     console.print(f"[dim]Note: {statement[:50]}... -> {e}[/]")
 
@@ -139,7 +139,7 @@ def status():
             for table_name, display_name in tables:
                 try:
                     result = session.exec(
-                        text(f"SELECT COUNT(*) FROM {table_name}")
+                        text(f"SELECT COUNT(*) FROM {table_name}")  # type: ignore[arg-type]
                     ).first()
                     count = result if result is not None else 0
                     console.print(f"   ✅ {display_name}: {count} records")
@@ -156,7 +156,7 @@ def status():
                     WHERE schemaname = 'public'
                     AND tablename IN ('search_queries', 'posts', 'content', 'sentiment_analyses')
                     ORDER BY tablename, indexname
-                    """)
+                    """)  # type: ignore[arg-type]
                 ).fetchall()
 
                 current_table = None

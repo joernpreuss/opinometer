@@ -257,7 +257,7 @@ def format_table_row(
     show_links: bool = False,
 ) -> tuple[str, ...]:
     """Format a result row for table display."""
-    score = result["sentiment"]["compound"]
+    title_score = result["title_sentiment"]["compound"]
     title = truncate_title(result["title"], title_width)
     url = result.get("url", "")
 
@@ -290,7 +290,7 @@ def format_table_row(
             else title
         )
 
-    score_color = "green" if score > 0 else "red" if score < 0 else "yellow"
+    title_color = "green" if title_score > 0 else "red" if title_score < 0 else "yellow"
 
     # Format source using platform method
     if platform:
@@ -302,25 +302,33 @@ def format_table_row(
     version_display = result["claude_version"] or "N/A"
     date_display = format_date(result.get("created_utc", 0))
 
+    # Format post sentiment (selftext)
+    selftext_sentiment = result.get("selftext_sentiment")
+    if selftext_sentiment:
+        post_score = selftext_sentiment["compound"]
+        post_color = (
+            "green" if post_score > 0 else "red" if post_score < 0 else "yellow"
+        )
+        post_score_display = f"[{post_color}]{post_score:+.3f}[/]"
+    else:
+        post_score_display = "[dim]N/A[/]"
+
     if analyze_content:
-        # Format content sentiment
+        # Format link content sentiment
         content_sentiment = result.get("content_sentiment")
         if content_sentiment:
-            content_score = content_sentiment["compound"]
-            content_color = (
-                "green"
-                if content_score > 0
-                else "red"
-                if content_score < 0
-                else "yellow"
+            link_score = content_sentiment["compound"]
+            link_color = (
+                "green" if link_score > 0 else "red" if link_score < 0 else "yellow"
             )
-            content_display = f"[{content_color}]{content_score:+.3f}[/]"
+            link_score_display = f"[{link_color}]{link_score:+.3f}[/]"
         else:
-            content_display = "[dim]N/A[/]"
+            link_score_display = "[dim]N/A[/]"
 
         return (
-            f"[{score_color}]{score:+.3f}[/]",
-            content_display,
+            f"[{title_color}]{title_score:+.3f}[/]",
+            post_score_display,
+            link_score_display,
             version_display,
             date_display,
             source_display,
@@ -328,7 +336,8 @@ def format_table_row(
         )
     else:
         return (
-            f"[{score_color}]{score:+.3f}[/]",
+            f"[{title_color}]{title_score:+.3f}[/]",
+            post_score_display,
             version_display,
             date_display,
             source_display,
@@ -491,10 +500,10 @@ def print_summary(
     terminal_width = console.size.width
     # Reserve space for borders, padding, and fixed columns
     base_fixed_width = (
-        8 + 12 + 15 + 11 + 10
-    )  # Score + Version + Source + Date + padding/borders
-    content_col_width = 7 if analyze_content else 0  # Content sentiment column
-    fixed_width = base_fixed_width + content_col_width
+        8 + 8 + 12 + 15 + 11 + 10
+    )  # Title Score + Post Score + Version + Source + Date + padding/borders
+    link_col_width = 8 if analyze_content else 0  # Link sentiment column
+    fixed_width = base_fixed_width + link_col_width
 
     # Calculate available width for title - use available space but ensure table fits
     calculated_width = terminal_width - fixed_width
@@ -506,9 +515,10 @@ def print_summary(
         title_width = max(25, calculated_width)
 
     posts_table = Table(title=table_title, show_header=True, width=terminal_width)
-    posts_table.add_column("Score", width=8, style="bold")
+    posts_table.add_column("Title\nScore", width=8, style="bold")
+    posts_table.add_column("Post\nScore", width=8, style="bold")
     if analyze_content:
-        posts_table.add_column("Link", width=7, style="bold")
+        posts_table.add_column("Link\nScore", width=8, style="bold")
     posts_table.add_column("Version", width=12, style="cyan")
     posts_table.add_column("Date", width=11)
     posts_table.add_column("Source", width=15)
@@ -663,8 +673,13 @@ def main(
                 task = progress.add_task("[cyan]Processing titles...", total=len(posts))
 
                 for post in posts:
-                    full_text = f"{post['title']} {post['selftext']}"
-                    sentiment = analyze_sentiment(full_text, analyzer)
+                    # Analyze title and selftext separately
+                    title_sentiment = analyze_sentiment(post["title"], analyzer)
+                    selftext_sentiment = (
+                        analyze_sentiment(post["selftext"], analyzer)
+                        if post["selftext"]
+                        else None
+                    )
 
                     result: Result = {
                         "post_id": post["id"],
@@ -676,9 +691,11 @@ def main(
                         "score": post["score"],
                         "created_utc": post["created_utc"],
                         "url": post["url"],
-                        "sentiment": sentiment,
+                        "title_sentiment": title_sentiment,
+                        "selftext_sentiment": selftext_sentiment,
+                        "sentiment": title_sentiment,  # Keep for backward compatibility
                         "content_sentiment": None,
-                        "sentiment_label": sentiment_label(sentiment["compound"]),
+                        "sentiment_label": sentiment_label(title_sentiment["compound"]),
                     }
                     title_results.append(result)
                     progress.update(task, advance=1)
@@ -768,9 +785,13 @@ def main(
                 task = progress.add_task("[cyan]Analyzing text...", total=len(posts))
 
                 for post in posts:
-                    # Combine title and selftext for analysis
-                    full_text = f"{post['title']} {post['selftext']}"
-                    sentiment = analyze_sentiment(full_text, analyzer)
+                    # Analyze title and selftext separately
+                    title_sentiment = analyze_sentiment(post["title"], analyzer)
+                    selftext_sentiment = (
+                        analyze_sentiment(post["selftext"], analyzer)
+                        if post["selftext"]
+                        else None
+                    )
 
                     post_result: Result = {
                         "post_id": post["id"],
@@ -782,10 +803,12 @@ def main(
                         "score": post["score"],
                         "created_utc": post["created_utc"],
                         "url": post["url"],
-                        "sentiment": sentiment,
+                        "title_sentiment": title_sentiment,
+                        "selftext_sentiment": selftext_sentiment,
+                        "sentiment": title_sentiment,  # Keep for backward compatibility
                         # Will be filled in parallel if needed
                         "content_sentiment": None,
-                        "sentiment_label": sentiment_label(sentiment["compound"]),
+                        "sentiment_label": sentiment_label(title_sentiment["compound"]),
                     }
                     all_sentiment_results.append(post_result)
                     progress.update(task, advance=1)

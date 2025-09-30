@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 class SearchQuery(SQLModel, table=True):
     """Search queries table - tracks each analysis run."""
 
-    __tablename__ = "search_queries"
+    __tablename__: str = "search_queries"  # type: ignore[assignment]
 
     id: Optional[int] = Field(default=None, primary_key=True)
     query: str = Field(max_length=200, index=True)
@@ -42,7 +42,7 @@ class SearchQuery(SQLModel, table=True):
 class Post(SQLModel, table=True):
     """Posts table - stores collected post data."""
 
-    __tablename__ = "posts"
+    __tablename__: str = "posts"  # type: ignore[assignment]
 
     id: str = Field(primary_key=True, max_length=50)
     search_query_id: int = Field(foreign_key="search_queries.id", index=True)
@@ -71,7 +71,7 @@ class Post(SQLModel, table=True):
 class Content(SQLModel, table=True):
     """Content table - stores fetched URL content."""
 
-    __tablename__ = "content"
+    __tablename__: str = "content"  # type: ignore[assignment]
 
     id: Optional[int] = Field(default=None, primary_key=True)
     post_id: str = Field(foreign_key="posts.id", index=True, max_length=50)
@@ -98,7 +98,7 @@ class Content(SQLModel, table=True):
 class SentimentAnalysis(SQLModel, table=True):
     """Sentiment analyses table - stores analysis results."""
 
-    __tablename__ = "sentiment_analyses"
+    __tablename__: str = "sentiment_analyses"  # type: ignore[assignment]
 
     id: Optional[int] = Field(default=None, primary_key=True)
     post_id: str = Field(foreign_key="posts.id", index=True, max_length=50)
@@ -131,7 +131,7 @@ class SentimentAnalysis(SQLModel, table=True):
     post: Post = Relationship(back_populates="sentiment_analyses")
     content: Optional[Content] = Relationship(back_populates="sentiment_analyses")
 
-    class Config:
+    class Config:  # type: ignore[override]
         """SQLModel configuration."""
 
         # Add unique constraint

@@ -26,12 +26,10 @@ def upgrade() -> None:
     op.create_table(
         "search_queries",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column(
-            "query", sqlmodel.sql.sqltypes.AutoString(length=200), nullable=False
-        ),
+        sa.Column("query", sqlmodel.AutoString(length=200), nullable=False),
         sa.Column(
             "analysis_method",
-            sqlmodel.sql.sqltypes.AutoString(length=50),
+            sqlmodel.AutoString(length=50),
             nullable=False,
         ),
         sa.Column("total_posts", sa.Integer(), nullable=False),
@@ -54,15 +52,11 @@ def upgrade() -> None:
     )
     op.create_table(
         "posts",
-        sa.Column("id", sqlmodel.sql.sqltypes.AutoString(length=50), nullable=False),
+        sa.Column("id", sqlmodel.AutoString(length=50), nullable=False),
         sa.Column("search_query_id", sa.Integer(), nullable=False),
-        sa.Column("title", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column(
-            "source", sqlmodel.sql.sqltypes.AutoString(length=20), nullable=False
-        ),
-        sa.Column(
-            "community", sqlmodel.sql.sqltypes.AutoString(length=100), nullable=True
-        ),
+        sa.Column("title", sqlmodel.AutoString(), nullable=False),
+        sa.Column("source", sqlmodel.AutoString(length=20), nullable=False),
+        sa.Column("community", sqlmodel.AutoString(length=100), nullable=True),
         sa.Column("score", sa.Integer(), nullable=False),
         sa.Column("created_utc", sa.DateTime(), nullable=True),
         sa.Column("raw_data", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
@@ -91,9 +85,7 @@ def upgrade() -> None:
     op.create_table(
         "content",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column(
-            "post_id", sqlmodel.sql.sqltypes.AutoString(length=50), nullable=False
-        ),
+        sa.Column("post_id", sqlmodel.AutoString(length=50), nullable=False),
         sa.Column("fetch_success", sa.Boolean(), nullable=False),
         sa.Column("content_length", sa.Integer(), nullable=True),
         sa.Column(
@@ -121,26 +113,18 @@ def upgrade() -> None:
     op.create_table(
         "sentiment_analyses",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column(
-            "post_id", sqlmodel.sql.sqltypes.AutoString(length=50), nullable=False
-        ),
+        sa.Column("post_id", sqlmodel.AutoString(length=50), nullable=False),
         sa.Column("content_id", sa.Integer(), nullable=True),
         sa.Column(
             "analysis_method",
-            sqlmodel.sql.sqltypes.AutoString(length=50),
+            sqlmodel.AutoString(length=50),
             nullable=False,
         ),
         sa.Column("title_compound", sa.Numeric(precision=4, scale=3), nullable=True),
-        sa.Column(
-            "title_label", sqlmodel.sql.sqltypes.AutoString(length=10), nullable=True
-        ),
+        sa.Column("title_label", sqlmodel.AutoString(length=10), nullable=True),
         sa.Column("content_compound", sa.Numeric(precision=4, scale=3), nullable=True),
-        sa.Column(
-            "content_label", sqlmodel.sql.sqltypes.AutoString(length=10), nullable=True
-        ),
-        sa.Column(
-            "claude_version", sqlmodel.sql.sqltypes.AutoString(length=20), nullable=True
-        ),
+        sa.Column("content_label", sqlmodel.AutoString(length=10), nullable=True),
+        sa.Column("claude_version", sqlmodel.AutoString(length=20), nullable=True),
         sa.Column(
             "full_results", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
