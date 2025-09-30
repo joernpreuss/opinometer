@@ -126,7 +126,7 @@ class BasePlatform(ABC):
         subreddit: str | None = None,
     ) -> PostData:
         """Create standardized post data structure."""
-        from version_extractor import extract_claude_version
+        from version_extractor import extract_claude_version  # type: ignore[import-not-found]
 
         return {
             "id": post_id,

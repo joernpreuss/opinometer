@@ -39,7 +39,7 @@ class DatabaseSettings(BaseSettings):
         default=3600, description="Database connection recycle time"
     )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def connection_url(self) -> str:
         """Generate connection URL from components or use provided URL."""
@@ -51,7 +51,7 @@ class DatabaseSettings(BaseSettings):
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def async_connection_url(self) -> str:
         """Generate async connection URL."""
@@ -60,13 +60,13 @@ class DatabaseSettings(BaseSettings):
             return url.replace("postgresql://", "postgresql+asyncpg://", 1)
         return url
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.environment.lower() == "production"
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def is_development(self) -> bool:
         """Check if running in development environment."""

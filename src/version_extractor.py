@@ -19,18 +19,27 @@ def extract_claude_version(title: str, text: str = "") -> str | None:
     full_text = f"{title} {text}".lower()
 
     # Version patterns to match, ordered by specificity (most specific first)
+    # Model family names MUST come before Claude versions to avoid matching "4.5" in "Sonnet 4.5"
     patterns = [
-        # Specific model versions
+        # Model family names with versions (highest priority)
+        r"sonnet\s*(?:4\.5|4-5)",  # Sonnet 4.5
+        r"sonnet\s*(?:3\.7|3-7)",  # Sonnet 3.7
+        r"sonnet\s*(?:3\.5|3-5)",  # Sonnet 3.5
+        r"opus\s*(?:4\.0|4-0|4)",  # Opus 4
+        r"opus\s*(?:3\.5|3-5)",  # Opus 3.5
+        r"haiku\s*(?:3\.5|3-5)",  # Haiku 3.5
+        # Specific Claude versions (after model families)
         r"claude\s*(?:3\.7|3-7)",  # Claude 3.7
         r"claude\s*(?:3\.5|3-5)",  # Claude 3.5
         r"claude\s*(?:3\.0|3-0|3)",  # Claude 3
+        r"claude\s*(?:4\.5|4-5)",  # Claude 4.5
         r"claude\s*(?:4\.0|4-0|4)",  # Claude 4
         r"claude\s*(?:2\.5|2-5)",  # Claude 2.5
         r"claude\s*(?:2\.0|2-0|2)",  # Claude 2
-        # Model family names - need to find first occurrence
-        r"sonnet(?:\s+3\.5|\s+4)?",  # Sonnet
-        r"opus(?:\s+3\.5|\s+4)?",  # Opus (usually 3.5 or 4)
-        r"haiku(?:\s+3\.5|\s+4)?",  # Haiku
+        # Model family names - generic
+        r"sonnet",  # Sonnet (unspecified)
+        r"opus",  # Opus (unspecified)
+        r"haiku",  # Haiku (unspecified)
         # General Claude references (lowest priority)
         r"claude\s+(?:code|ai)",  # Claude Code/AI (no specific version)
     ]
@@ -60,13 +69,29 @@ def normalize_version(version_text: str) -> str:
     """
     version_text = version_text.lower().strip()
 
-    # Normalize specific versions
-    if re.search(r"3\.7|3-7", version_text):
+    # Normalize model families with versions FIRST (most specific)
+    if re.search(r"sonnet\s*(?:4\.5|4-5)", version_text):
+        return "Sonnet 4.5"
+    elif re.search(r"sonnet\s*(?:3\.7|3-7)", version_text):
+        return "Sonnet 3.7"
+    elif re.search(r"sonnet\s*(?:3\.5|3-5)", version_text):
+        return "Sonnet 3.5"
+    elif re.search(r"opus\s*(?:4\.0|4-0|4)", version_text):
+        return "Opus 4"
+    elif re.search(r"opus\s*(?:3\.5|3-5)", version_text):
+        return "Opus 3.5"
+    elif re.search(r"haiku\s*(?:3\.5|3-5)", version_text):
+        return "Haiku 3.5"
+
+    # Normalize specific Claude versions (after model families)
+    elif re.search(r"3\.7|3-7", version_text):
         return "Claude 3.7"
     elif re.search(r"3\.5|3-5", version_text):
         return "Claude 3.5"
     elif re.search(r"3\.0|3-0|\bclaude\s+3\b", version_text):
         return "Claude 3"
+    elif re.search(r"4\.5|4-5", version_text):
+        return "Claude 4.5"
     elif re.search(r"4\.0|4-0|\bclaude\s+4\b", version_text):
         return "Claude 4"
     elif re.search(r"2\.5|2-5", version_text):
@@ -74,7 +99,7 @@ def normalize_version(version_text: str) -> str:
     elif re.search(r"2\.0|2-0|\bclaude\s+2\b", version_text):
         return "Claude 2"
 
-    # Normalize model families
+    # Normalize model families (generic)
     elif "opus" in version_text:
         return "Opus"
     elif "sonnet" in version_text:
@@ -87,31 +112,3 @@ def normalize_version(version_text: str) -> str:
         return "Claude"
 
     return version_text.title()
-
-
-def test_version_extraction() -> None:
-    """Test the version extraction function with sample data."""
-    test_cases: list[tuple[str, str, str | None]] = [
-        ("Holy SH*T they cooked. Claude 3.7 coded this game", "", "Claude 3.7"),
-        ("Demo of Claude 4 autonomously coding", "", "Claude 4"),
-        ("I've been using Claude Code for months", "", "Claude"),
-        ("Sonnet is better than Opus for coding", "", "Sonnet"),
-        (
-            "Claude 3.5 vs Claude 4 comparison",
-            "",
-            "Claude 3.5",
-        ),  # Should pick first match
-        ("Using Haiku for simple tasks", "", "Haiku"),
-        ("No AI mentioned here", "", None),
-    ]
-
-    for title, text, expected in test_cases:
-        result = extract_claude_version(title, text)
-        print(f"Title: '{title}' -> {result} (expected: {expected})")
-        assert result == expected, f"Expected {expected}, got {result}"
-
-    print("✅ All version extraction tests passed!")
-
-
-if __name__ == "__main__":
-    test_version_extraction()

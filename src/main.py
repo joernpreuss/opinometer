@@ -21,8 +21,8 @@ from rich.progress import Progress
 from rich.table import Table
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore
 
-from platforms.hackernews import HackerNewsPlatform
-from platforms.reddit import RedditPlatform
+from platforms.hackernews import HackerNewsPlatform  # type: ignore[import-not-found]
+from platforms.reddit import RedditPlatform  # type: ignore[import-not-found]
 
 HELP_TEXT = """
 [bold blue]Opinometer[/bold blue] - Multi-source sentiment analysis tool
@@ -222,19 +222,29 @@ def format_date(created_utc: float) -> str:
         now = datetime.now(tz=timezone.utc)
         age_days = (now - dt).days
 
-        # Color-code based on age
+        # Add relative time label
+        if age_days == 0:
+            relative = "today"
+        elif age_days == 1:
+            relative = "yesterday"
+        elif age_days <= 7:
+            relative = "last week"
+        elif age_days <= 30:
+            relative = "last month"
+        elif age_days <= 90:
+            relative = "3 months ago"
+        elif age_days <= 365:
+            relative = "this year"
+        else:
+            relative = f"{age_days // 365}y ago"
+
+        # Color-code based on age (darker colors, no dim)
         if age_days == 0:  # Today
-            return f"[white]{date_str}[/white]"
+            return f"{date_str}\n[bright_black]{relative}[/bright_black]"
         elif age_days <= 7:  # Within a week
-            return f"[bright_green]{date_str}[/bright_green]"
-        elif age_days <= 30:  # Within a month
-            return f"[green]{date_str}[/green]"
-        elif age_days <= 90:  # Within 3 months
-            return f"[yellow]{date_str}[/yellow]"
-        elif age_days <= 365:  # Within a year
-            return f"[red]{date_str}[/red]"
-        else:  # Older than a year
-            return f"[dim]{date_str}[/dim]"
+            return f"[green]{date_str}[/green]\n[bright_black]{relative}[/bright_black]"
+        else:  # Older
+            return f"{date_str}\n[bright_black]{relative}[/bright_black]"
     except (ValueError, OSError):
         return "[dim]N/A[/dim]"
 

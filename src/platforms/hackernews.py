@@ -8,7 +8,7 @@ that match specific topics for sentiment analysis.
 
 import httpx
 
-from platforms.base import BasePlatform, PostData
+from platforms.base import BasePlatform, PostData  # type: ignore[import-not-found]
 
 
 class HackerNewsPlatform(BasePlatform):
