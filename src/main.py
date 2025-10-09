@@ -27,6 +27,22 @@ from platforms.hackernews import HackerNewsPlatform  # type: ignore[import-not-f
 from platforms.reddit import RedditPlatform  # type: ignore[import-not-found]
 from stopwords import STOP_WORDS  # type: ignore[import-not-found]
 
+# Table column width constants
+COL_WIDTH_SCORE = 5
+COL_WIDTH_SENTIMENT = 8
+COL_WIDTH_DATE = 12
+COL_WIDTH_VERSION = 12
+COL_WIDTH_SOURCE = 15
+MIN_TITLE_WIDTH = 20
+
+# Word frequency table column widths
+FREQ_COL_WIDTH_RANK = 6
+FREQ_COL_WIDTH_WORD = 20
+FREQ_COL_WIDTH_COUNT = 10
+
+# Title truncation
+ELLIPSIS_RESERVE = 2
+
 HELP_TEXT = """
 [bold blue]Opinometer[/bold blue] - Multi-source sentiment analysis tool
 
@@ -286,7 +302,6 @@ def _truncate_title(title: str, max_length: int) -> str:
     title = title.replace("\ufe0f", "")
 
     # Reserve space for Rich's ellipsis rendering
-    ELLIPSIS_RESERVE = 2
     effective_max = max_length - ELLIPSIS_RESERVE
 
     if len(title) <= effective_max:
@@ -346,6 +361,15 @@ def format_table_row(
     show_links: bool = False,
 ) -> tuple[str, ...]:
     """Format a result row for table display."""
+    # Format score (upvotes/points)
+    score = result.get("score", 0)
+    if score >= 10000:
+        score_display = f"{score // 1000}k"
+    elif score >= 1000:
+        score_display = f"{score / 1000:.1f}k"
+    else:
+        score_display = str(score)
+
     title_score = result["title_sentiment"]["compound"]
     # Manually truncate to account for emoji display width
     title = _truncate_title(result["title"], title_width)
@@ -417,6 +441,7 @@ def format_table_row(
             link_score_display = "[dim]N/A[/]"
 
         return (
+            score_display,
             f"[{title_color}]{title_score:+.3f}[/]",
             post_score_display,
             link_score_display,
@@ -427,6 +452,7 @@ def format_table_row(
         )
     else:
         return (
+            score_display,
             f"[{title_color}]{title_score:+.3f}[/]",
             post_score_display,
             date_display,
@@ -576,29 +602,25 @@ def print_summary(
 
     console.print(table)
 
-    # Sort posts
+    # Sort posts - always by score (highest first) unless -d flag is used
     if sort_by_date:
         sorted_results = sorted(
             sentiment_results, key=lambda x: x["created_utc"], reverse=True
         )
         table_title = "🗓️ Posts by Date (Newest First)"
     else:
+        # Sort by score (upvotes/points) - highest first
         sorted_results = sorted(
-            sentiment_results, key=lambda x: x["sentiment"]["compound"], reverse=True
+            sentiment_results, key=lambda x: x.get("score", 0), reverse=True
         )
-        table_title = "🔍 Top Posts by Sentiment"
-
-    # Define column widths
-    COL_WIDTH_SENTIMENT = 8
-    COL_WIDTH_DATE = 12
-    COL_WIDTH_VERSION = 12
-    COL_WIDTH_SOURCE = 15
+        table_title = "🔍 Top Posts by Score"
 
     # Calculate title width based on terminal size
     terminal_width = console.size.width
     # Sum of fixed column widths
     fixed_cols = (
-        COL_WIDTH_SENTIMENT  # Title sentiment
+        COL_WIDTH_SCORE  # Score column
+        + COL_WIDTH_SENTIMENT  # Title sentiment
         + COL_WIDTH_SENTIMENT  # Post sentiment
         + COL_WIDTH_DATE
         + COL_WIDTH_VERSION
@@ -608,10 +630,9 @@ def print_summary(
         fixed_cols += COL_WIDTH_SENTIMENT  # Add link sentiment column
 
     # Borders and padding: (num_cols + 1) borders + (num_cols * 2) padding
-    num_cols = 7 if analyze_content else 6
+    num_cols = 8 if analyze_content else 7
     overhead = (num_cols + 1) + (num_cols * 2)
     # Available for title (minimum 20 chars to ensure readability)
-    MIN_TITLE_WIDTH = 20
     title_width = max(MIN_TITLE_WIDTH, terminal_width - fixed_cols - overhead)
 
     # Create table that expands to full terminal width
@@ -620,6 +641,7 @@ def print_summary(
         show_header=True,
         expand=True,
     )
+    posts_table.add_column("Score", width=COL_WIDTH_SCORE, style="bold magenta", justify="right")
     posts_table.add_column("Title\nSentmt", width=COL_WIDTH_SENTIMENT, style="bold")
     posts_table.add_column("Post\nSentmt", width=COL_WIDTH_SENTIMENT, style="bold")
     if analyze_content:
@@ -640,23 +662,13 @@ def print_summary(
                 )
             )
     else:
-        # Show top 5 overall posts
-        for result in sorted_results[:5]:
+        # When sorted by score/date, show top 10 posts
+        for result in sorted_results[:10]:
             posts_table.add_row(
                 *format_table_row(
                     result, title_width, platforms, analyze_content, show_links
                 )
             )
-
-        # Show bottom 5 posts if available
-        if len(sorted_results) > 5:
-            posts_table.add_section()
-            for result in sorted_results[-5:]:
-                posts_table.add_row(
-                    *format_table_row(
-                        result, title_width, platforms, analyze_content, show_links
-                    )
-                )
 
     console.print(posts_table)
 
@@ -665,11 +677,6 @@ def print_summary(
     word_freq = extract_word_frequencies(sentiment_results, query, top_n=30)
 
     if word_freq:
-        # Define word frequency table column widths
-        FREQ_COL_WIDTH_RANK = 6
-        FREQ_COL_WIDTH_WORD = 20
-        FREQ_COL_WIDTH_COUNT = 10
-
         freq_table = Table(
             title="📝 Most Occurring Words (from Titles & Content)",
             show_header=True,
