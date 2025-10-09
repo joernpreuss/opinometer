@@ -29,8 +29,8 @@ from stopwords import STOP_WORDS  # type: ignore[import-not-found]
 
 # Table column width constants
 COL_WIDTH_SCORE = 5
-COL_WIDTH_SENTIMENT = 8
-COL_WIDTH_DATE = 12
+COL_WIDTH_SENTIMENT = 6
+COL_WIDTH_DATE = 10
 COL_WIDTH_VERSION = 12
 COL_WIDTH_SOURCE = 15
 MIN_TITLE_WIDTH = 20
@@ -417,49 +417,39 @@ def format_table_row(
     version_display = result.get("claude_version") or result.get("model_label") or "N/A"
     date_display = format_date(result.get("created_utc", 0))
 
-    # Format post sentiment (selftext)
+    # Combine all sentiments into one column with values stacked vertically
+    # Only show lines that have actual values (not N/A)
+    sentiment_lines = [f"[{title_color}]{title_score:+.3f}[/]"]
+
+    # Add post sentiment if available
     selftext_sentiment = result.get("selftext_sentiment")
     if selftext_sentiment:
         post_score = selftext_sentiment["compound"]
         post_color = (
             "green" if post_score > 0 else "red" if post_score < 0 else "yellow"
         )
-        post_score_display = f"[{post_color}]{post_score:+.3f}[/]"
-    else:
-        post_score_display = "[dim]N/A[/]"
+        sentiment_lines.append(f"[{post_color}]{post_score:+.3f}[/]")
 
+    # Add link content sentiment if available (only when analyze_content is enabled)
     if analyze_content:
-        # Format link content sentiment
         content_sentiment = result.get("content_sentiment")
         if content_sentiment:
             link_score = content_sentiment["compound"]
             link_color = (
                 "green" if link_score > 0 else "red" if link_score < 0 else "yellow"
             )
-            link_score_display = f"[{link_color}]{link_score:+.3f}[/]"
-        else:
-            link_score_display = "[dim]N/A[/]"
+            sentiment_lines.append(f"[{link_color}]{link_score:+.3f}[/]")
 
-        return (
-            score_display,
-            f"[{title_color}]{title_score:+.3f}[/]",
-            post_score_display,
-            link_score_display,
-            date_display,
-            version_display,
-            source_display,
-            title_with_url,
-        )
-    else:
-        return (
-            score_display,
-            f"[{title_color}]{title_score:+.3f}[/]",
-            post_score_display,
-            date_display,
-            version_display,
-            source_display,
-            title_with_url,
-        )
+    combined_sentiment = "\n".join(sentiment_lines)
+
+    return (
+        score_display,
+        combined_sentiment,
+        date_display,
+        version_display,
+        source_display,
+        title_with_url,
+    )
 
 
 def save_results(
@@ -617,20 +607,17 @@ def print_summary(
 
     # Calculate title width based on terminal size
     terminal_width = console.size.width
-    # Sum of fixed column widths
+    # Sum of fixed column widths (now with combined sentiment column)
     fixed_cols = (
         COL_WIDTH_SCORE  # Score column
-        + COL_WIDTH_SENTIMENT  # Title sentiment
-        + COL_WIDTH_SENTIMENT  # Post sentiment
+        + COL_WIDTH_SENTIMENT  # Combined sentiment column
         + COL_WIDTH_DATE
         + COL_WIDTH_VERSION
         + COL_WIDTH_SOURCE
     )
-    if analyze_content:
-        fixed_cols += COL_WIDTH_SENTIMENT  # Add link sentiment column
 
     # Borders and padding: (num_cols + 1) borders + (num_cols * 2) padding
-    num_cols = 8 if analyze_content else 7
+    num_cols = 6  # Score, Sentiment, Date, Version, Source, Title
     overhead = (num_cols + 1) + (num_cols * 2)
     # Available for title (minimum 20 chars to ensure readability)
     title_width = max(MIN_TITLE_WIDTH, terminal_width - fixed_cols - overhead)
@@ -642,10 +629,7 @@ def print_summary(
         expand=True,
     )
     posts_table.add_column("Score", width=COL_WIDTH_SCORE, style="bold magenta", justify="right")
-    posts_table.add_column("Title\nSentmt", width=COL_WIDTH_SENTIMENT, style="bold")
-    posts_table.add_column("Post\nSentmt", width=COL_WIDTH_SENTIMENT, style="bold")
-    if analyze_content:
-        posts_table.add_column("Link\nSentmt", width=COL_WIDTH_SENTIMENT, style="bold")
+    posts_table.add_column("Sentmt", width=COL_WIDTH_SENTIMENT, style="bold")
     posts_table.add_column("Date", width=COL_WIDTH_DATE)
     posts_table.add_column("Version", width=COL_WIDTH_VERSION, style="cyan")
     posts_table.add_column("Source", width=COL_WIDTH_SOURCE)
