@@ -126,7 +126,16 @@ class BasePlatform(ABC):
         subreddit: str | None = None,
     ) -> PostData:
         """Create standardized post data structure."""
-        from version_extractor import extract_claude_version  # type: ignore[import-not-found]
+        from model_extractor import (
+            best_model_label,
+            extract_model_mentions,
+        )
+        from version_extractor import (
+            extract_claude_version,
+        )
+
+        mentions = extract_model_mentions(title, selftext)
+        model_label = best_model_label(mentions)
 
         return {
             "id": post_id,
@@ -137,6 +146,8 @@ class BasePlatform(ABC):
             "subreddit": subreddit or self.name,
             "source": self.name,
             "claude_version": extract_claude_version(title, selftext),
+            "model_mentions": mentions,
+            "model_label": model_label,
             "author": author,
             "created_utc": created_utc,
             "num_comments": num_comments,

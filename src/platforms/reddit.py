@@ -23,11 +23,38 @@ class RedditPlatform(BasePlatform):
         # Reddit JSON API doesn't require authentication
         pass
 
-    async def collect_posts_async(self, query: str, limit: int = 20) -> list[PostData]:
-        """Collect Reddit posts matching the search query using httpx."""
-        self.console.print(f"🔍 Searching {self.name} for '[cyan]{query}[/]'...")
+    async def collect_posts_async(
+        self,
+        query: str,
+        limit: int = 20,
+        after: str | None = None,
+        existing_ids: set[str] | None = None,
+    ) -> list[PostData]:
+        """Collect Reddit posts matching the search query using httpx.
+
+        Args:
+            query: Search query string (supports comma-separated for OR: "term1,term2")
+            limit: Maximum number of posts to fetch
+            after: Reddit pagination token (fullname of last post)
+            existing_ids: Set of post IDs to skip (for deduplication)
+
+        Returns:
+            List of post data dictionaries
+        """
+        # Convert comma-separated query to OR syntax for Reddit
+        if "," in query:
+            terms = [t.strip() for t in query.split(",") if t.strip()]
+            query = " OR ".join(terms)
+            self.console.print(
+                f"🔍 Searching {self.name} for '[cyan]{query}[/]' "
+                f"({len(terms)} terms)..."
+            )
+        elif not after:
+            self.console.print(f"🔍 Searching {self.name} for '[cyan]{query}[/]'...")
 
         posts: list[PostData] = []
+        if existing_ids is None:
+            existing_ids = set()
 
         try:
             # Use Reddit's JSON API
@@ -39,6 +66,10 @@ class RedditPlatform(BasePlatform):
                 "t": "all",  # All time
                 "type": "link",  # Only link posts (not comments)
             }
+
+            # Add pagination token if provided
+            if after:
+                params["after"] = after
 
             headers = {"User-Agent": "OpinometerPrototype/1.0 (by /u/opinometer)"}
 
@@ -64,11 +95,16 @@ class RedditPlatform(BasePlatform):
                 if not post.get("title"):
                     continue
 
+                # Skip if we've already seen this post
+                post_id = post.get("id", "")
+                if post_id in existing_ids:
+                    continue
+
                 title = post.get("title", "")
                 selftext = post.get("selftext", "") or ""
 
                 post_data = self.create_post_data(
-                    post_id=post.get("id", ""),
+                    post_id=post_id,
                     title=title,
                     selftext=selftext,
                     score=post.get("score", 0),
@@ -80,12 +116,27 @@ class RedditPlatform(BasePlatform):
                 )
                 posts.append(post_data)
 
-            self.log_success(len(posts))
+            if not after:
+                self.log_success(len(posts))
             return posts
 
         except Exception as e:
             self.log_error(e)
             return []
+
+    def get_pagination_token(self, response_data: dict) -> str | None:
+        """Extract pagination token from Reddit API response.
+
+        Args:
+            response_data: The JSON response from Reddit API
+
+        Returns:
+            The 'after' token for pagination, or None if no more pages
+        """
+        try:
+            return response_data.get("data", {}).get("after")
+        except Exception:
+            return None
 
     def should_analyze_url(self, url: str) -> bool:
         """Check if a URL should be analyzed for content."""
