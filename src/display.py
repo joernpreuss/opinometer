@@ -20,7 +20,7 @@ FREQ_COL_WIDTH_WORD = 20
 FREQ_COL_WIDTH_COUNT = 10
 
 # Title truncation
-ELLIPSIS_RESERVE = 2
+ELLIPSIS_RESERVE = 1
 
 console = Console()
 
@@ -158,25 +158,24 @@ def format_table_row(
     version_display = result.get("claude_version") or result.get("model_label") or "N/A"
     date_display = format_date(result.get("created_utc", 0))
 
-    # Combine all sentiments into one column with values stacked vertically
-    sentiment_lines = [f"[{title_color}]{title_score:+.3f}[/]"]
+    # Combine sentiments with title - sentiment before each line
+    title_lines = title_with_url.split("\n")
 
-    # Count how many lines the title has
-    title_line_count = title_with_url.count("\n") + 1
+    # Build sentiment values
+    sentiment_values = [f"[{title_color}]{title_score:+.3f}[/]"]
 
-    # Add post sentiment if available, or N/A if title has 2+ lines but no post
+    # Add post sentiment if available, or N/A if we have more lines
     selftext_sentiment = result.get("selftext_sentiment")
     if selftext_sentiment:
         post_score = selftext_sentiment["compound"]
         post_color = (
             "green" if post_score > 0 else "red" if post_score < 0 else "yellow"
         )
-        sentiment_lines.append(f"[{post_color}]{post_score:+.3f}[/]")
-    elif title_line_count >= 2:
-        # Show N/A if title has 2+ lines but no post sentiment
-        sentiment_lines.append("[dim]N/A[/]")
+        sentiment_values.append(f"[{post_color}]{post_score:+.3f}[/]")
+    elif len(title_lines) >= 2:
+        sentiment_values.append("[dim] N/A  [/]")
 
-    # Add link content sentiment - show N/A only if there's actually a content link shown
+    # Add link content sentiment if enabled
     if analyze_content:
         content_sentiment = result.get("content_sentiment")
         if content_sentiment:
@@ -184,20 +183,26 @@ def format_table_row(
             link_color = (
                 "green" if link_score > 0 else "red" if link_score < 0 else "yellow"
             )
-            sentiment_lines.append(f"[{link_color}]{link_score:+.3f}[/]")
+            sentiment_values.append(f"[{link_color}]{link_score:+.3f}[/]")
         elif has_content_link_in_title:
-            # Only show N/A if title actually displays a 3rd line (content link)
-            sentiment_lines.append("[dim]N/A[/]")
+            sentiment_values.append("[dim] N/A  [/]")
 
-    combined_sentiment = "\n".join(sentiment_lines)
+    # Combine sentiment + title on each line
+    combined_lines = []
+    for i, line in enumerate(title_lines):
+        if i < len(sentiment_values):
+            combined_lines.append(f"{sentiment_values[i]} {line}")
+        else:
+            combined_lines.append(line)
+
+    title_with_sentiment = "\n".join(combined_lines)
 
     return (
         score_display,
-        combined_sentiment,
         date_display,
         version_display,
         source_display,
-        title_with_url,
+        title_with_sentiment,
     )
 
 
@@ -284,17 +289,16 @@ def print_summary(
 
     # Calculate title width based on terminal size
     terminal_width = console.size.width
-    # Sum of fixed column widths (now with combined sentiment column)
+    # Sum of fixed column widths (sentiment is now combined with title)
     fixed_cols = (
         COL_WIDTH_SCORE  # Score column
-        + COL_WIDTH_SENTIMENT  # Combined sentiment column
         + COL_WIDTH_DATE
         + COL_WIDTH_VERSION
         + COL_WIDTH_SOURCE
     )
 
     # Borders and padding: (num_cols + 1) borders + (num_cols * 2) padding
-    num_cols = 6  # Score, Sentiment, Date, Version, Source, Title
+    num_cols = 5  # Score, Date, Version, Source, Title (with sentiment)
     overhead = (num_cols + 1) + (num_cols * 2)
     # Available for title (minimum 20 chars to ensure readability)
     title_width = max(MIN_TITLE_WIDTH, terminal_width - fixed_cols - overhead)
@@ -308,11 +312,15 @@ def print_summary(
     posts_table.add_column(
         "Score", width=COL_WIDTH_SCORE, style="bold magenta", justify="right"
     )
-    posts_table.add_column("Sentmt", width=COL_WIDTH_SENTIMENT, style="bold")
     posts_table.add_column("Date", width=COL_WIDTH_DATE)
     posts_table.add_column("Version", width=COL_WIDTH_VERSION, style="cyan")
     posts_table.add_column("Source", width=COL_WIDTH_SOURCE)
-    posts_table.add_column("Title", no_wrap=True, overflow="ellipsis", ratio=1)
+    posts_table.add_column(
+        "Sentiments & Title / Post Link / Content Link",
+        no_wrap=True,
+        overflow="ellipsis",
+        ratio=1,
+    )
 
     posts_table.add_section()
 

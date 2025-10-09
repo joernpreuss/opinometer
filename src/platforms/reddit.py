@@ -71,7 +71,7 @@ class RedditPlatform(BasePlatform):
             if after:
                 params["after"] = after
 
-            headers = {"User-Agent": "OpinometerPrototype/1.0 (by /u/opinometer)"}
+            headers = {"User-Agent": "Opinometer/1.0"}
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Opinometer Simple Prototype
+Opinometer
 
-Collects Reddit posts about specific topics and analyzes sentiment using VADER.
-No database required - outputs to JSON/CSV files.
+Multi-source sentiment analysis tool for Reddit and Hacker News.
+Analyzes sentiment using VADER and outputs results to JSON/CSV files.
 """
 
 from pathlib import Path
@@ -101,8 +101,8 @@ def main(
 
     console.print(
         Panel.fit(
-            "[bold blue]🎯 Opinometer Simple Prototype[/]\n\n"
-            "[dim]Multi-source sentiment analysis with VADER[/]",
+            "[bold blue]🎯 Opinometer[/]\n\n"
+            "[dim]Multi-source sentiment analysis for Reddit and Hacker News[/]",
             title="[bold blue]Opinometer[/]",
             border_style="blue",
         )
