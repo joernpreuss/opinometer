@@ -82,17 +82,16 @@ uv run src/main.py --limit 100
    Neutral                   13 (54.2%)
    Negative                  4 (16.7%)
 
-┏━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
-┃ Title    ┃ Post     ┃ Date       ┃ Version     ┃ Source        ┃ Title         ┃
-┃ Sentmt   ┃ Sentmt   ┃            ┃             ┃               ┃               ┃
-┡━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
-│ +0.985   │ +0.891   │ 2025-09-29 │ Claude 3.7  │ r/Anthropic   │ Just tried... │
-│          │          │ today      │             │               │               │
-│ +0.973   │ N/A      │ 2025-09-25 │ Claude Code │ r/ClaudeAI    │ The Claude... │
-│          │          │ last week  │             │               │               │
-│ -0.920   │ -0.847   │ 2025-08-19 │ Claude Code │ r/ClaudeAI    │ Claude Code...│
-│          │          │ 3 months   │             │               │               │
-└──────────┴──────────┴────────────┴─────────────┴───────────────┴───────────────┘
+┏━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Score ┃ Date       ┃ Version     ┃ Source        ┃ Sentiments & Title / Post... ┃
+┡━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│  2.1k │ 2025-09-29 │ Claude 3.7  │ r/Anthropic   │ +0.985 Just tried Claude...  │
+│       │ today      │             │               │ +0.891 https://reddit.com/... │
+│  1.5k │ 2025-09-25 │ Claude Code │ r/ClaudeAI    │ +0.973 The Claude Code is...  │
+│       │ last week  │             │               │  N/A   https://reddit.com/... │
+│   892 │ 2025-08-19 │ Claude Code │ r/ClaudeAI    │ -0.920 Claude Code broke...   │
+│       │ 3 months   │             │               │ -0.847 https://reddit.com/... │
+└───────┴────────────┴─────────────┴───────────────┴───────────────────────────────┘
 ```
 
 ## Architecture
@@ -110,8 +109,12 @@ opinometer/
 │   │   ├── models.py       # Database models
 │   │   ├── config.py       # Database configuration
 │   │   └── cli.py          # Database management CLI
+│   ├── analysis.py         # Sentiment analysis & word frequency
+│   ├── display.py          # Table formatting & rendering
+│   ├── file_io.py          # File I/O & content fetching
 │   ├── main.py             # CLI application
-│   └── version_extractor.py # Version detection logic
+│   ├── model_extractor.py  # Generic model version detection
+│   └── version_extractor.py # Claude-specific version detection
 ├── tests/                  # Test suite
 ├── alembic/                # Database migrations
 ├── pyproject.toml          # Project dependencies
