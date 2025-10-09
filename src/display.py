@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
+import networkx as nx
 from rich.console import Console
 from rich.table import Table
 
@@ -371,3 +372,137 @@ def print_word_frequency_table(
         freq_table.add_row(f"#{idx}", display_word, str(count))
 
     console.print(freq_table)
+
+
+def print_network_edge_table(
+    G: nx.Graph,
+    top_n: int = 20,
+) -> None:
+    """Print co-occurrence edge table showing word pairs and their connection strength.
+
+    Args:
+        G: NetworkX graph with word co-occurrences
+        top_n: Number of top edges to display
+    """
+    if len(G.edges) == 0:
+        console.print("\n[yellow]No co-occurrence edges found in network[/yellow]")
+        return
+
+    console.print("\n")  # Add spacing
+    edge_table = Table(
+        title="🔗 Word Co-Occurrence Network (Top Connections)",
+        show_header=True,
+    )
+    edge_table.add_column("Rank", width=6, style="dim")
+    edge_table.add_column("Word 1", width=20)
+    edge_table.add_column("Word 2", width=20)
+    edge_table.add_column("Co-occurrences", width=15, style="green", justify="right")
+
+    # Get edges sorted by weight
+    edges_sorted = sorted(
+        G.edges(data=True),
+        key=lambda x: x[2]["weight"],
+        reverse=True,
+    )
+
+    for idx, (word1, word2, data) in enumerate(edges_sorted[:top_n], 1):
+        weight = data["weight"]
+
+        # Highlight query words
+        is_query_1 = G.nodes[word1].get("is_query_word", False)
+        is_query_2 = G.nodes[word2].get("is_query_word", False)
+
+        word1_display = (
+            f"[bright_cyan]{word1} *[/bright_cyan]"
+            if is_query_1
+            else f"[dim cyan]{word1}[/dim cyan]"
+        )
+        word2_display = (
+            f"[bright_cyan]{word2} *[/bright_cyan]"
+            if is_query_2
+            else f"[dim cyan]{word2}[/dim cyan]"
+        )
+
+        edge_table.add_row(f"#{idx}", word1_display, word2_display, str(weight))
+
+    console.print(edge_table)
+
+
+def print_network_metrics_table(
+    G: nx.Graph,
+    top_n: int = 20,
+) -> None:
+    """Print network metrics table showing centrality measures for each word.
+
+    Args:
+        G: NetworkX graph with word co-occurrences
+        top_n: Number of top nodes to display
+    """
+    if len(G.nodes) == 0:
+        console.print("\n[yellow]No nodes found in network[/yellow]")
+        return
+
+    console.print("\n")  # Add spacing
+    metrics_table = Table(
+        title="📊 Network Metrics (Most Central Words)",
+        show_header=True,
+    )
+    metrics_table.add_column("Rank", width=6, style="dim")
+    metrics_table.add_column("Word", width=20)
+    metrics_table.add_column("Frequency", width=12, style="magenta", justify="right")
+    metrics_table.add_column("Connections", width=12, style="yellow", justify="right")
+    metrics_table.add_column(
+        "Degree Centrality", width=18, style="cyan", justify="right"
+    )
+    metrics_table.add_column("Betweenness", width=15, style="green", justify="right")
+
+    # Create node data with metrics
+    node_data = []
+    for node in G.nodes():
+        freq = G.nodes[node].get("frequency", 0)
+        degree = G.degree[node]  # type: ignore[index]
+        degree_cent = G.nodes[node].get("degree_centrality", 0.0)
+        betweenness = G.nodes[node].get("betweenness_centrality", 0.0)
+        is_query = G.nodes[node].get("is_query_word", False)
+
+        node_data.append(
+            {
+                "word": node,
+                "frequency": freq,
+                "degree": degree,
+                "degree_centrality": degree_cent,
+                "betweenness": betweenness,
+                "is_query_word": is_query,
+            }
+        )
+
+    # Sort by degree centrality (most central first)
+    node_data_sorted = sorted(
+        node_data, key=lambda x: x["degree_centrality"], reverse=True
+    )
+
+    for idx, data in enumerate(node_data_sorted[:top_n], 1):
+        word = data["word"]
+        freq = data["frequency"]
+        degree = data["degree"]
+        degree_cent = data["degree_centrality"]
+        betweenness = data["betweenness"]
+        is_query = data["is_query_word"]
+
+        # Highlight query words
+        word_display = (
+            f"[bright_cyan]{word} *[/bright_cyan]"
+            if is_query
+            else f"[dim cyan]{word}[/dim cyan]"
+        )
+
+        metrics_table.add_row(
+            f"#{idx}",
+            word_display,
+            str(freq),
+            str(degree),
+            f"{degree_cent:.3f}",
+            f"{betweenness:.3f}",
+        )
+
+    console.print(metrics_table)

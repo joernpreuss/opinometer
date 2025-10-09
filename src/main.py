@@ -15,8 +15,18 @@ from rich.panel import Panel
 from rich.progress import Progress
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore
 
-from analysis import analyze_sentiment, extract_word_frequencies, sentiment_label  # type: ignore[import-not-found]
-from display import print_summary, print_word_frequency_table  # type: ignore[import-not-found]
+from analysis import (
+    analyze_sentiment,
+    build_cooccurrence_network,
+    extract_word_frequencies,
+    sentiment_label,
+)  # type: ignore[import-not-found]
+from display import (
+    print_network_edge_table,
+    print_network_metrics_table,
+    print_summary,
+    print_word_frequency_table,
+)  # type: ignore[import-not-found]
 from file_io import fetch_content_for_posts, save_results  # type: ignore[import-not-found]
 from platforms.hackernews import HackerNewsPlatform  # type: ignore[import-not-found]
 from platforms.reddit import RedditPlatform  # type: ignore[import-not-found]
@@ -35,6 +45,7 @@ HELP_TEXT = """
   -d, --sort-by-date      Sort posts by date instead of sentiment
   -c, --analyze-content   Also analyze sentiment of linked content
   -s, --show-links        Show linked content URLs as third line in title
+  -n, --network           Show word co-occurrence network instead of frequency
   --debug-content         Show extracted content used for sentiment analysis
                           (use with -c)
   -h, --help              Show this message and exit
@@ -85,6 +96,12 @@ def main(
         "--show-links",
         "-s",
         help="Show linked content URLs as third line in title",
+    ),
+    show_network: bool = typer.Option(
+        False,
+        "--network",
+        "-n",
+        help="Show word co-occurrence network instead of frequency",
     ),
     debug_content: bool = typer.Option(
         False,
@@ -425,9 +442,18 @@ def main(
             show_links,
         )
 
-        # Display word frequency analysis
-        word_freq = extract_word_frequencies(sentiment_results, query, top_n=30)
-        print_word_frequency_table(word_freq)
+        # Display word frequency or network analysis
+        if show_network:
+            # Build and display co-occurrence network
+            network_graph = build_cooccurrence_network(
+                sentiment_results, query, min_word_freq=3, min_cooccurrence=2
+            )
+            print_network_edge_table(network_graph, top_n=20)
+            print_network_metrics_table(network_graph, top_n=20)
+        else:
+            # Display word frequency analysis
+            word_freq = extract_word_frequencies(sentiment_results, query, top_n=30)
+            print_word_frequency_table(word_freq)
 
         save_results(posts, sentiment_results, query)
 
