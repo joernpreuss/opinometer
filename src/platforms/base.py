@@ -5,11 +5,15 @@ Base platform class for data collection.
 Defines the common interface that all platform-specific collectors must implement.
 """
 
+import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 
 from rich.console import Console
+
+from model_extractor import best_model_label, extract_model_mentions
+from version_extractor import extract_claude_version
 
 PostData = dict[str, Any]
 
@@ -47,8 +51,6 @@ class BasePlatform(ABC):
         Returns:
             List of post data dictionaries
         """
-        import asyncio
-
         return asyncio.run(self.collect_posts_async(query, limit))
 
     @abstractmethod
@@ -126,14 +128,6 @@ class BasePlatform(ABC):
         subreddit: str | None = None,
     ) -> PostData:
         """Create standardized post data structure."""
-        from model_extractor import (
-            best_model_label,
-            extract_model_mentions,
-        )
-        from version_extractor import (
-            extract_claude_version,
-        )
-
         mentions = extract_model_mentions(title, selftext)
         model_label = best_model_label(mentions)
 

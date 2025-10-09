@@ -210,3 +210,51 @@ class HackerNewsPlatform(BasePlatform):
             )
         else:
             return f"{title}\n[bright_black]{discussion_url}[/bright_black]"
+
+    async def fetch_comments(self, post_data: PostData, limit: int = 30) -> list[str]:
+        """Fetch comments for a Hacker News post.
+
+        Args:
+            post_data: Post data dictionary containing post id
+            limit: Maximum number of comments to fetch (default: 30)
+
+        Returns:
+            List of comment text strings
+        """
+        post_id = post_data.get("id", "")
+
+        # Extract HN story ID from post_id (format: "hn_12345")
+        if not post_id.startswith("hn_"):
+            return []
+
+        story_id = post_id.replace("hn_", "")
+
+        try:
+            # Use Algolia HN API to fetch comments for this story
+            search_url = "https://hn.algolia.com/api/v1/search"
+            params = {
+                "tags": f"comment,story_{story_id}",
+                "hitsPerPage": str(limit),
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(search_url, params=params, timeout=10.0)
+                response.raise_for_status()
+                data = response.json()
+
+            # Extract comment text from hits
+            comment_texts: list[str] = []
+            for hit in data.get("hits", []):
+                comment_text = hit.get("comment_text", "")
+
+                # Skip empty comments
+                if not comment_text or not comment_text.strip():
+                    continue
+
+                comment_texts.append(comment_text)
+
+            return comment_texts
+
+        except Exception:
+            # Silently return empty list on error (don't spam console)
+            return []

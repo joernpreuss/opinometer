@@ -6,6 +6,8 @@ Multi-source sentiment analysis tool for Reddit and Hacker News.
 Analyzes sentiment using VADER and outputs results to JSON/CSV files.
 """
 
+import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ from rich.progress import Progress
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore
 
 from analysis import (
+    analyze_comments_sentiment,
     analyze_sentiment,
     build_cooccurrence_network,
     extract_word_frequencies,
@@ -27,7 +30,10 @@ from display import (
     print_summary,
     print_word_frequency_table,
 )  # type: ignore[import-not-found]
-from file_io import fetch_content_for_posts, save_results  # type: ignore[import-not-found]
+from file_io import (  # type: ignore[import-not-found]
+    fetch_content_for_posts,
+    save_results,
+)
 from platforms.hackernews import HackerNewsPlatform  # type: ignore[import-not-found]
 from platforms.reddit import RedditPlatform  # type: ignore[import-not-found]
 
@@ -44,6 +50,7 @@ HELP_TEXT = """
   -l, --limit INTEGER     Total number of posts to collect [default: 60]
   -d, --sort-by-date      Sort posts by date instead of sentiment
   -c, --analyze-content   Also analyze sentiment of linked content
+  -C, --analyze-comments  Analyze comment sentiment (shows colored blocks)
   -s, --show-links        Show linked content URLs as third line in title
   -n, --network           Show word co-occurrence network instead of frequency
   --debug-content         Show extracted content used for sentiment analysis
@@ -90,6 +97,12 @@ def main(
         "--analyze-content",
         "-c",
         help="Also analyze sentiment of linked content",
+    ),
+    analyze_comments: bool = typer.Option(
+        False,
+        "--analyze-comments",
+        "-C",
+        help="Analyze comment sentiment (shows colored blocks)",
     ),
     show_links: bool = typer.Option(
         False,
@@ -145,8 +158,6 @@ def main(
         # Create debug file if debug mode is enabled
         debug_file = None
         if debug_content:
-            from datetime import datetime
-
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             debug_file = (
                 f"results/content_debug_{query.replace(' ', '_')}_{timestamp}.txt"
@@ -164,8 +175,6 @@ def main(
 
         async def collect_all_posts():
             """Collect posts from both platforms concurrently."""
-            import asyncio
-
             # Run both platform collections concurrently
             reddit_task = reddit_platform.collect_posts_async(query, limit // 2)
             hn_task = hackernews_platform.collect_posts_async(query, limit // 2)
@@ -175,8 +184,6 @@ def main(
             return reddit_posts, hn_posts
 
         # Execute parallel collection
-        import asyncio
-
         reddit_posts, hn_posts = asyncio.run(collect_all_posts())
         posts = reddit_posts + hn_posts
 
@@ -285,8 +292,6 @@ def main(
                 f"displayed posts in parallel...[/]"
             )
 
-            import asyncio
-
             # Convert results back to post format for the parallel fetcher
             posts_for_content: list[dict[str, Any]] = []
             for result in posts_to_analyze:
@@ -386,8 +391,6 @@ def main(
 
             # Fetch content in parallel if requested
             if analyze_content:
-                import asyncio
-
                 console.print("🌐 [bold]Fetching linked content in parallel...[/]")
 
                 # Create progress tracking for async content fetching
@@ -431,6 +434,49 @@ def main(
 
             sentiment_results = all_sentiment_results
 
+        # Analyze comments if requested
+        if analyze_comments:
+            console.print("💬 [bold]Analyzing comment sentiment in parallel...[/]")
+
+            async def fetch_all_comments() -> None:
+                """Fetch and analyze comments for all posts concurrently."""
+                tasks = []
+                for result in sentiment_results:
+                    # Create post_data dict for platform method
+                    post_data = {
+                        "id": result.get("post_id", ""),
+                        "subreddit": result.get("subreddit", "unknown"),
+                        "source": result.get("source", ""),
+                    }
+
+                    # Get the appropriate platform
+                    source = result["source"]
+                    platform = platforms.get(source)
+
+                    if platform:
+                        # Create async task to fetch comments
+                        task = platform.fetch_comments(post_data, limit=30)
+                        tasks.append((result, task))
+
+                # Run all comment fetching tasks concurrently
+                for result, task in tasks:
+                    comments = await task
+                    # Analyze sentiment of fetched comments
+                    if comments:
+                        comment_sentiments = analyze_comments_sentiment(
+                            comments, analyzer
+                        )
+                        result["comment_sentiments"] = comment_sentiments
+                    else:
+                        result["comment_sentiments"] = None
+
+            # Execute parallel comment fetching
+            asyncio.run(fetch_all_comments())
+
+            console.print(
+                f"[dim]💬 Analyzed comments for {len(sentiment_results)} posts[/]"
+            )
+
         # Output results
         print_summary(
             sentiment_results,
@@ -440,6 +486,7 @@ def main(
             sort_by_date,
             analyze_content,
             show_links,
+            analyze_comments,
         )
 
         # Display word frequency or network analysis

@@ -4,7 +4,6 @@ from sqlmodel import Session, SQLModel, create_engine, text
 
 from .config import db_settings
 
-
 # Create database engine
 engine = create_engine(
     db_settings.connection_url,

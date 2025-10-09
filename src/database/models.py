@@ -4,8 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
-from sqlmodel import Column, Field, Relationship, SQLModel, text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlmodel import Column, Field, Relationship, SQLModel, text
 
 
 class SearchQuery(SQLModel, table=True):

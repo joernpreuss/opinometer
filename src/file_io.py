@@ -1,5 +1,6 @@
 """File I/O and content fetching utilities."""
 
+import asyncio
 import csv
 import json
 from datetime import datetime
@@ -76,8 +77,6 @@ async def fetch_content_for_posts(
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, dict[str, float]]:
     """Fetch content for multiple posts in parallel and analyze sentiment."""
-    import asyncio
-
     completed_count = 0
     total_posts = len(posts)
 

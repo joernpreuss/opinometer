@@ -38,6 +38,31 @@ def sentiment_label(compound_score: float) -> str:
         return "neutral"
 
 
+def analyze_comments_sentiment(
+    comments: list[str], analyzer: SentimentIntensityAnalyzer
+) -> dict[str, int]:
+    """Analyze sentiment of comments and return counts.
+
+    Args:
+        comments: List of comment text strings
+        analyzer: VADER sentiment analyzer instance
+
+    Returns:
+        Dictionary with counts: {"positive": int, "neutral": int, "negative": int}
+    """
+    counts = {"positive": 0, "neutral": 0, "negative": 0}
+
+    for comment in comments:
+        if not comment or not comment.strip():
+            continue
+
+        sentiment = analyze_sentiment(comment, analyzer)
+        label = sentiment_label(sentiment["compound"])
+        counts[label] += 1
+
+    return counts
+
+
 def extract_word_frequencies(
     sentiment_results: list[dict[str, Any]], query: str, top_n: int = 20
 ) -> list[tuple[str, int, bool]]:

@@ -13,6 +13,7 @@ COL_WIDTH_SENTIMENT = 6
 COL_WIDTH_DATE = 10
 COL_WIDTH_VERSION = 12
 COL_WIDTH_SOURCE = 15
+COL_WIDTH_COMMENTS = 5
 MIN_TITLE_WIDTH = 20
 
 # Word frequency table column widths
@@ -50,6 +51,64 @@ def _truncate_title(title: str, max_length: int) -> str:
 
     # Truncate to effective max length
     return title[:effective_max]
+
+
+def render_sentiment_blocks(comment_sentiments: dict[str, int] | None) -> str:
+    """Render comment sentiment as colored blocks (5 characters wide).
+
+    Args:
+        comment_sentiments: Dict with keys "positive", "neutral", "negative"
+                           or None if no comments analyzed
+
+    Returns:
+        5-character string with colored blocks or dashes
+    """
+    if comment_sentiments is None:
+        return "[dim]-----[/dim]"
+
+    total = sum(comment_sentiments.values())
+
+    if total == 0:
+        return "[dim]-----[/dim]"
+
+    # Calculate number of blocks for each sentiment (out of 5)
+    positive = comment_sentiments.get("positive", 0)
+    neutral = comment_sentiments.get("neutral", 0)
+    negative = comment_sentiments.get("negative", 0)
+
+    # Calculate proportions and round to nearest block
+    pos_blocks = round((positive / total) * 5)
+    neu_blocks = round((neutral / total) * 5)
+    neg_blocks = round((negative / total) * 5)
+
+    # Ensure we have exactly 5 blocks total
+    total_blocks = pos_blocks + neu_blocks + neg_blocks
+
+    # Adjust if rounding caused issues
+    if total_blocks > 5:
+        # Remove from the largest group
+        if pos_blocks >= neu_blocks and pos_blocks >= neg_blocks:
+            pos_blocks -= total_blocks - 5
+        elif neu_blocks >= pos_blocks and neu_blocks >= neg_blocks:
+            neu_blocks -= total_blocks - 5
+        else:
+            neg_blocks -= total_blocks - 5
+    elif total_blocks < 5:
+        # Add to the largest group
+        if pos_blocks >= neu_blocks and pos_blocks >= neg_blocks:
+            pos_blocks += 5 - total_blocks
+        elif neu_blocks >= pos_blocks and neu_blocks >= neg_blocks:
+            neu_blocks += 5 - total_blocks
+        else:
+            neg_blocks += 5 - total_blocks
+
+    # Build the block string
+    blocks = ""
+    blocks += "[green]" + "█" * pos_blocks + "[/green]"
+    blocks += "[yellow]" + "█" * neu_blocks + "[/yellow]"
+    blocks += "[red]" + "█" * neg_blocks + "[/red]"
+
+    return blocks
 
 
 def format_date(created_utc: float) -> str:
@@ -100,6 +159,7 @@ def format_table_row(
     platforms: dict[str, Any],
     analyze_content: bool = False,
     show_links: bool = False,
+    analyze_comments: bool = False,
 ) -> tuple[str, ...]:
     """Format a result row for table display."""
     # Format score (upvotes/points)
@@ -198,13 +258,26 @@ def format_table_row(
 
     title_with_sentiment = "\n".join(combined_lines)
 
-    return (
-        score_display,
-        date_display,
-        version_display,
-        source_display,
-        title_with_sentiment,
-    )
+    # Return row with or without comment blocks (comments at end)
+    if analyze_comments:
+        comment_sentiments = result.get("comment_sentiments")
+        comment_blocks = render_sentiment_blocks(comment_sentiments)
+        return (
+            score_display,
+            date_display,
+            version_display,
+            source_display,
+            title_with_sentiment,
+            comment_blocks,
+        )
+    else:
+        return (
+            score_display,
+            date_display,
+            version_display,
+            source_display,
+            title_with_sentiment,
+        )
 
 
 def print_summary(
@@ -215,6 +288,7 @@ def print_summary(
     sort_by_date: bool = False,
     analyze_content: bool = False,
     show_links: bool = False,
+    analyze_comments: bool = False,
 ):
     """Print a summary of sentiment analysis results."""
 
@@ -298,8 +372,14 @@ def print_summary(
         + COL_WIDTH_SOURCE
     )
 
+    # Add comments column width if analyzing comments
+    if analyze_comments:
+        fixed_cols += COL_WIDTH_COMMENTS
+
     # Borders and padding: (num_cols + 1) borders + (num_cols * 2) padding
     num_cols = 5  # Score, Date, Version, Source, Title (with sentiment)
+    if analyze_comments:
+        num_cols = 6  # Add Comments column
     overhead = (num_cols + 1) + (num_cols * 2)
     # Available for title (minimum 20 chars to ensure readability)
     title_width = max(MIN_TITLE_WIDTH, terminal_width - fixed_cols - overhead)
@@ -310,6 +390,8 @@ def print_summary(
         show_header=True,
         expand=True,
     )
+
+    # Add columns - comments column at end if analyzing comments
     posts_table.add_column(
         "Score", width=COL_WIDTH_SCORE, style="bold magenta", justify="right"
     )
@@ -322,6 +404,10 @@ def print_summary(
         overflow="ellipsis",
         ratio=1,
     )
+    if analyze_comments:
+        posts_table.add_column(
+            "Com.", width=COL_WIDTH_COMMENTS, style="bold", justify="center"
+        )
 
     posts_table.add_section()
 
@@ -330,7 +416,12 @@ def print_summary(
         for result in sorted_results:
             posts_table.add_row(
                 *format_table_row(
-                    result, title_width, platforms, analyze_content, show_links
+                    result,
+                    title_width,
+                    platforms,
+                    analyze_content,
+                    show_links,
+                    analyze_comments,
                 )
             )
     else:
@@ -338,7 +429,12 @@ def print_summary(
         for result in sorted_results[:10]:
             posts_table.add_row(
                 *format_table_row(
-                    result, title_width, platforms, analyze_content, show_links
+                    result,
+                    title_width,
+                    platforms,
+                    analyze_content,
+                    show_links,
+                    analyze_comments,
                 )
             )
 

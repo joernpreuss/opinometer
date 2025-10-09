@@ -2,7 +2,7 @@
 
 import typer
 from rich.console import Console
-from sqlmodel import text
+from sqlmodel import SQLModel, text
 
 from .config import db_settings
 from .connection import engine, get_session_sync, test_connection
@@ -27,8 +27,6 @@ def init():
 
     try:
         # Create all tables using SQLModel
-        from sqlmodel import SQLModel
-
         console.print("📦 Creating tables...")
         SQLModel.metadata.create_all(engine)
         console.print("✅ Tables created successfully")
@@ -84,8 +82,6 @@ def reset():
         return
 
     try:
-        from sqlmodel import SQLModel
-
         console.print("🗑️  Dropping all tables...")
         SQLModel.metadata.drop_all(engine)
 

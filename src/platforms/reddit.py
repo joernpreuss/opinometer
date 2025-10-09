@@ -196,3 +196,65 @@ class RedditPlatform(BasePlatform):
         else:
             # Self-post: only show discussion URL (no external link)
             return f"{title}\n[bright_black]{discussion_url}[/bright_black]"
+
+    async def fetch_comments(self, post_data: PostData, limit: int = 30) -> list[str]:
+        """Fetch top-level comments for a Reddit post.
+
+        Args:
+            post_data: Post data dictionary containing id and subreddit
+            limit: Maximum number of comments to fetch (default: 30)
+
+        Returns:
+            List of comment text strings
+        """
+        post_id = post_data.get("id", "")
+        subreddit = post_data.get("subreddit", "unknown")
+
+        if not post_id or subreddit == "unknown":
+            return []
+
+        try:
+            # Reddit JSON API endpoint for comments
+            url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}/_.json"
+            headers = {"User-Agent": "Opinometer/1.0"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=10.0)
+                response.raise_for_status()
+                data = response.json()
+
+            # Response is [post_data, comments_data]
+            if not isinstance(data, list) or len(data) < 2:
+                return []
+
+            comments_listing = data[1]
+            if (
+                "data" not in comments_listing
+                or "children" not in comments_listing["data"]
+            ):
+                return []
+
+            # Extract comment text from top-level comments
+            comment_texts: list[str] = []
+            for child in comments_listing["data"]["children"]:
+                if child.get("kind") != "t1":  # t1 = comment
+                    continue
+
+                comment_data = child.get("data", {})
+                body = comment_data.get("body", "")
+
+                # Skip deleted/removed comments
+                if not body or body in ["[deleted]", "[removed]"]:
+                    continue
+
+                comment_texts.append(body)
+
+                # Stop if we have enough comments
+                if len(comment_texts) >= limit:
+                    break
+
+            return comment_texts
+
+        except Exception:
+            # Silently return empty list on error (don't spam console)
+            return []

@@ -1,0 +1,7 @@
+{
+  "include": ["src"],
+  "extraPaths": ["src"],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}

@@ -10,6 +10,7 @@ Multi-source sentiment analysis tool for Reddit and Hacker News. Analyzes sentim
 - Use `uv` for all Python commands (never plain `python`)
 - Keep patches minimal; avoid unrelated refactors in same commit
 - Prefer pure functions with clear inputs/outputs
+- All imports at file top, never inline in functions or blocks
 
 ## Model Extractor Logic (`src/model_extractor.py`)
 

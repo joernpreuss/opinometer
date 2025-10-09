@@ -22,6 +22,14 @@ dev = [
     "mypy==1.18.2",
 ]
 
+[tool.ruff.lint]
+select = [
+    "E",        # pycodestyle errors
+    "F",        # pyflakes
+    "I",        # isort
+    "PLC0415",  # import-outside-toplevel
+]
+
 [tool.mypy]
 python_version = "3.13"
 pretty = true
