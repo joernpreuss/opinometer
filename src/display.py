@@ -389,6 +389,7 @@ def print_summary(
         title=table_title,
         show_header=True,
         expand=True,
+        show_lines=True,
     )
 
     # Add columns - comments column at end if analyzing comments
