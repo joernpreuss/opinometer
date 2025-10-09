@@ -8,6 +8,8 @@ No database required - outputs to JSON/CSV files.
 
 import csv
 import json
+import re
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -23,6 +25,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ig
 
 from platforms.hackernews import HackerNewsPlatform  # type: ignore[import-not-found]
 from platforms.reddit import RedditPlatform  # type: ignore[import-not-found]
+from stopwords import STOP_WORDS  # type: ignore[import-not-found]
 
 HELP_TEXT = """
 [bold blue]Opinometer[/bold blue] - Multi-source sentiment analysis tool
@@ -32,6 +35,7 @@ HELP_TEXT = """
 
 [bold]Options:[/bold]
   -q, --query TEXT        Search query to analyze [default: Claude Code]
+                          Use commas for OR logic: "claude,openai,chatgpt"
   -a, --all-posts         Show all posts instead of just top/bottom 5
   -l, --limit INTEGER     Total number of posts to collect [default: 60]
   -d, --sort-by-date      Sort posts by date instead of sentiment
@@ -44,6 +48,7 @@ HELP_TEXT = """
 [bold]Examples:[/bold]
   uv run src/main.py                              # Default behavior
   uv run src/main.py -q "GPT-4" -l 40             # Custom query and limit
+  uv run src/main.py -q "claude,openai" -l 50     # OR query (comma-separated)
   uv run src/main.py -d -a                        # Sort by date, show all
   uv run src/main.py --query "Claude 4" --help    # This help message
 """
@@ -165,6 +170,7 @@ async def fetch_content_for_posts(
                 result: dict[str, Any] | None = {
                     "post_id": post["id"],
                     "content_sentiment": content_sentiment,
+                    "content_text": content_text,
                 }
             else:
                 result = None
@@ -183,8 +189,8 @@ async def fetch_content_for_posts(
     # Execute all tasks in parallel
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Filter out None results and exceptions, return mapping of post_id -> sentiment
-    content_results: dict[str, dict[str, float]] = {}
+    # Filter out None results and exceptions, return mapping of post_id -> data
+    content_results: dict[str, dict[str, Any]] = {}
     for result in results:
         if (
             result
@@ -192,7 +198,10 @@ async def fetch_content_for_posts(
             and isinstance(result, dict)
             and result.get("post_id")
         ):
-            content_results[result["post_id"]] = result["content_sentiment"]
+            content_results[result["post_id"]] = {
+                "content_sentiment": result["content_sentiment"],
+                "content_text": result.get("content_text", ""),
+            }
 
     return content_results
 
@@ -207,9 +216,84 @@ def sentiment_label(compound_score: float) -> str:
         return "neutral"
 
 
-def truncate_title(title: str, max_length: int) -> str:
-    """Truncate title to max length - let Rich handle ellipsis."""
-    return title[:max_length]  # No manual "..." - let Rich handle it
+def extract_word_frequencies(
+    sentiment_results: list[dict[str, Any]], query: str, top_n: int = 20
+) -> list[tuple[str, int, bool]]:
+    """Extract and count most occurring words from titles, content, and fetched link content.
+
+    Args:
+        sentiment_results: List of sentiment analysis results
+        query: The search query (to highlight matching words)
+        top_n: Number of top words to return
+
+    Returns:
+        List of tuples (word, count, is_query_word)
+    """
+    all_words: list[str] = []
+
+    for result in sentiment_results:
+        # Extract from title
+        title = result.get("title", "")
+        if title:
+            all_words.extend(
+                re.findall(r"\b[a-z]{3,}\b", title.lower())
+            )  # Words 3+ chars
+
+        # Extract from selftext (post content)
+        selftext = result.get("selftext", "")
+        if selftext:
+            all_words.extend(re.findall(r"\b[a-z]{3,}\b", selftext.lower()))
+
+        # Extract from fetched link content (if available)
+        content_text = result.get("content_text")
+        if content_text:
+            all_words.extend(re.findall(r"\b[a-z]{3,}\b", content_text.lower()))
+
+    # Filter out stop words
+    filtered_words = [word for word in all_words if word not in STOP_WORDS]
+
+    # Count frequencies
+    word_counts = Counter(filtered_words)
+
+    # Extract query words for matching
+    query_words = {
+        word.lower()
+        for word in re.findall(r"\b[a-z]{3,}\b", query.lower())
+        if word.lower() not in STOP_WORDS
+    }
+
+    # Return top N most common with query match flag
+    return [
+        (word, count, word in query_words)
+        for word, count in word_counts.most_common(top_n)
+    ]
+
+
+def _has_emoji(text: str) -> bool:
+    """Check if text contains emojis."""
+    return any(len(char.encode("utf-8")) > 3 for char in text)
+
+
+def _count_emojis(text: str) -> int:
+    """Count number of emojis in text."""
+    return sum(1 for char in text if len(char.encode("utf-8")) > 3)
+
+
+def _truncate_title(title: str, max_length: int) -> str:
+    """Truncate title, removing only variation selectors that cause display issues."""
+    # Remove variation selectors that cause emojis to display incorrectly
+    # This includes \uFE0F and other invisible modifiers
+    title = title.replace("\ufe0f", "")
+
+    # Reserve space for Rich's ellipsis rendering
+    ELLIPSIS_RESERVE = 2
+    effective_max = max_length - ELLIPSIS_RESERVE
+
+    if len(title) <= effective_max:
+        return title
+
+    # Truncate to effective max length
+    return title[:effective_max]
 
 
 def format_date(created_utc: float) -> str:
@@ -245,7 +329,9 @@ def format_date(created_utc: float) -> str:
         elif age_days <= 7:  # Within a week
             return f"[green]{date_str}[/green]\n[bright_black]{relative}[/bright_black]"
         elif age_days <= 30:  # Within a month
-            return f"[yellow]{date_str}[/yellow]\n[bright_black]{relative}[/bright_black]"
+            return (
+                f"[yellow]{date_str}[/yellow]\n[bright_black]{relative}[/bright_black]"
+            )
         else:  # Older
             return f"[dim]{date_str}[/dim]\n[bright_black]{relative}[/bright_black]"
     except (ValueError, OSError):
@@ -261,7 +347,8 @@ def format_table_row(
 ) -> tuple[str, ...]:
     """Format a result row for table display."""
     title_score = result["title_sentiment"]["compound"]
-    title = truncate_title(result["title"], title_width)
+    # Manually truncate to account for emoji display width
+    title = _truncate_title(result["title"], title_width)
     url = result.get("url", "")
 
     # Generate discussion page URL using platform method
@@ -302,7 +389,8 @@ def format_table_row(
     else:
         source_display = result["source"]
 
-    version_display = result["claude_version"] or "N/A"
+    # Prefer explicit Claude version; otherwise use generic model label if available
+    version_display = result.get("claude_version") or result.get("model_label") or "N/A"
     date_display = format_date(result.get("created_utc", 0))
 
     # Format post sentiment (selftext)
@@ -447,7 +535,8 @@ def print_summary(
 
     # Create summary table
     table = Table(
-        title=f"📈 Sentiment Analysis Summary for '{query}'", show_header=True
+        title=f"📈 Sentiment Analysis Summary for '{query}'",
+        show_header=True,
     )
     table.add_column("Metric", style="bold")
     table.add_column("Value", style="bold")
@@ -499,33 +588,46 @@ def print_summary(
         )
         table_title = "🔍 Top Posts by Sentiment"
 
-    # Create top posts table with dynamic width
+    # Define column widths
+    COL_WIDTH_SENTIMENT = 8
+    COL_WIDTH_DATE = 12
+    COL_WIDTH_VERSION = 12
+    COL_WIDTH_SOURCE = 15
+
+    # Calculate title width based on terminal size
     terminal_width = console.size.width
-    # Reserve space for borders, padding, and fixed columns
-    base_fixed_width = (
-        8 + 8 + 12 + 15 + 12 + 10
-    )  # Title Sentmt + Post Sentmt + Date + Version + Source + padding/borders
-    link_col_width = 8 if analyze_content else 0  # Link sentiment column
-    fixed_width = base_fixed_width + link_col_width
-
-    # Calculate available width for title - use available space but ensure table fits
-    calculated_width = terminal_width - fixed_width
-    if calculated_width >= 60:
-        title_width = calculated_width  # Use all available space
-    else:
-        # If terminal is narrow, use a reasonable minimum but don't exceed
-        # terminal width
-        title_width = max(25, calculated_width)
-
-    posts_table = Table(title=table_title, show_header=True, width=terminal_width)
-    posts_table.add_column("Title\nSentmt", width=8, style="bold")
-    posts_table.add_column("Post\nSentmt", width=8, style="bold")
+    # Sum of fixed column widths
+    fixed_cols = (
+        COL_WIDTH_SENTIMENT  # Title sentiment
+        + COL_WIDTH_SENTIMENT  # Post sentiment
+        + COL_WIDTH_DATE
+        + COL_WIDTH_VERSION
+        + COL_WIDTH_SOURCE
+    )
     if analyze_content:
-        posts_table.add_column("Link\nSentmt", width=8, style="bold")
-    posts_table.add_column("Date", width=12)
-    posts_table.add_column("Version", width=12, style="cyan")
-    posts_table.add_column("Source", width=15)
-    posts_table.add_column("Title", width=title_width, no_wrap=True)
+        fixed_cols += COL_WIDTH_SENTIMENT  # Add link sentiment column
+
+    # Borders and padding: (num_cols + 1) borders + (num_cols * 2) padding
+    num_cols = 7 if analyze_content else 6
+    overhead = (num_cols + 1) + (num_cols * 2)
+    # Available for title (minimum 20 chars to ensure readability)
+    MIN_TITLE_WIDTH = 20
+    title_width = max(MIN_TITLE_WIDTH, terminal_width - fixed_cols - overhead)
+
+    # Create table that expands to full terminal width
+    posts_table = Table(
+        title=table_title,
+        show_header=True,
+        expand=True,
+    )
+    posts_table.add_column("Title\nSentmt", width=COL_WIDTH_SENTIMENT, style="bold")
+    posts_table.add_column("Post\nSentmt", width=COL_WIDTH_SENTIMENT, style="bold")
+    if analyze_content:
+        posts_table.add_column("Link\nSentmt", width=COL_WIDTH_SENTIMENT, style="bold")
+    posts_table.add_column("Date", width=COL_WIDTH_DATE)
+    posts_table.add_column("Version", width=COL_WIDTH_VERSION, style="cyan")
+    posts_table.add_column("Source", width=COL_WIDTH_SOURCE)
+    posts_table.add_column("Title", no_wrap=True, overflow="ellipsis", ratio=1)
 
     posts_table.add_section()
 
@@ -557,6 +659,36 @@ def print_summary(
                 )
 
     console.print(posts_table)
+
+    # Display word frequency analysis
+    console.print("\n")  # Add spacing
+    word_freq = extract_word_frequencies(sentiment_results, query, top_n=30)
+
+    if word_freq:
+        # Define word frequency table column widths
+        FREQ_COL_WIDTH_RANK = 6
+        FREQ_COL_WIDTH_WORD = 20
+        FREQ_COL_WIDTH_COUNT = 10
+
+        freq_table = Table(
+            title="📝 Most Occurring Words (from Titles & Content)",
+            show_header=True,
+        )
+        freq_table.add_column("Rank", width=FREQ_COL_WIDTH_RANK, style="dim")
+        freq_table.add_column("Word", width=FREQ_COL_WIDTH_WORD)
+        freq_table.add_column(
+            "Count", width=FREQ_COL_WIDTH_COUNT, style="green", justify="right"
+        )
+
+        for idx, (word, count, is_query_word) in enumerate(word_freq, 1):
+            # Add asterisk for query words, style them lighter vs darker
+            if is_query_word:
+                display_word = f"[bright_cyan]{word} *[/bright_cyan]"
+            else:
+                display_word = f"[dim cyan]{word}[/dim cyan]"
+            freq_table.add_row(f"#{idx}", display_word, str(count))
+
+        console.print(freq_table)
 
 
 @app.callback(invoke_without_command=True)
@@ -666,6 +798,45 @@ def main(
             console.print("❌ [bold red]No posts found. Exiting.[/]")
             return
 
+        # Check if we need to fetch more posts to reach the limit
+        if len(posts) < limit:
+            shortfall = limit - len(posts)
+            console.print(
+                f"📊 [dim]Got {len(reddit_posts)} Reddit + {len(hn_posts)} HN posts. "
+                f"Fetching {shortfall} more from Reddit...[/]"
+            )
+
+            async def fetch_additional_reddit_posts():
+                """Fetch additional Reddit posts to meet the limit."""
+                additional_posts: list[PostData] = []
+                existing_ids = {post["id"] for post in posts}
+
+                # Try to fetch more posts with higher limit
+                # Reddit API returns max 100 per request, so we increase the limit
+                # The platform will deduplicate for us
+                total_requested = len(reddit_posts) + shortfall
+                new_posts = await reddit_platform.collect_posts_async(
+                    query, min(total_requested, 100), existing_ids=existing_ids
+                )
+
+                # Add any new posts we got
+                for post in new_posts:
+                    if post["id"] not in existing_ids:
+                        additional_posts.append(post)
+                        existing_ids.add(post["id"])
+
+                return additional_posts
+
+            additional_reddit = asyncio.run(fetch_additional_reddit_posts())
+
+            if additional_reddit:
+                posts.extend(additional_reddit)
+                reddit_posts.extend(additional_reddit)
+                console.print(
+                    f"✅ [dim]Fetched {len(additional_reddit)} additional Reddit posts. "
+                    f"Total: {len(posts)}[/]"
+                )
+
         # Two-pass analysis for efficiency
         if analyze_content and not all_posts:
             # Pass 1: Analyze titles only to find top/bottom posts
@@ -691,6 +862,7 @@ def main(
                         "subreddit": post["subreddit"],
                         "source": post["source"],
                         "claude_version": post["claude_version"],
+                        "model_label": post.get("model_label"),
                         "score": post["score"],
                         "created_utc": post["created_utc"],
                         "url": post["url"],
@@ -698,6 +870,7 @@ def main(
                         "selftext_sentiment": selftext_sentiment,
                         "sentiment": title_sentiment,  # Keep for backward compatibility
                         "content_sentiment": None,
+                        "content_text": None,
                         "sentiment_label": sentiment_label(title_sentiment["compound"]),
                     }
                     title_results.append(result)
@@ -758,11 +931,14 @@ def main(
                 # Run the async content fetching
                 content_results = asyncio.run(fetch_displayed_content())
 
-            # Update the displayed posts with content sentiment
+            # Update the displayed posts with content sentiment and text
             for result in posts_to_analyze:
                 post_id = result["post_id"]
                 if post_id in content_results:
-                    result["content_sentiment"] = content_results[post_id]
+                    result["content_sentiment"] = content_results[post_id][
+                        "content_sentiment"
+                    ]
+                    result["content_text"] = content_results[post_id]["content_text"]
 
             sentiment_results = title_results
 
@@ -803,6 +979,7 @@ def main(
                         "subreddit": post["subreddit"],
                         "source": post["source"],
                         "claude_version": post["claude_version"],
+                        "model_label": post.get("model_label"),
                         "score": post["score"],
                         "created_utc": post["created_utc"],
                         "url": post["url"],
@@ -811,6 +988,7 @@ def main(
                         "sentiment": title_sentiment,  # Keep for backward compatibility
                         # Will be filled in parallel if needed
                         "content_sentiment": None,
+                        "content_text": None,
                         "sentiment_label": sentiment_label(title_sentiment["compound"]),
                     }
                     all_sentiment_results.append(post_result)
@@ -845,11 +1023,16 @@ def main(
                     # Run the async content fetching
                     content_results = asyncio.run(fetch_all_content())
 
-                # Update results with content sentiment
+                # Update results with content sentiment and text
                 for result in all_sentiment_results:
                     post_id = result["post_id"]
                     if post_id in content_results:
-                        result["content_sentiment"] = content_results[post_id]
+                        result["content_sentiment"] = content_results[post_id][
+                            "content_sentiment"
+                        ]
+                        result["content_text"] = content_results[post_id][
+                            "content_text"
+                        ]
 
                 console.print(
                     f"[dim]📊 Analyzed {len(posts)} posts including "
