@@ -124,7 +124,9 @@ class HackerNewsPlatform(BasePlatform):
         )
 
         all_posts: dict[str, PostData] = {}  # Deduplicate by objectID
-        posts_per_term = max((FETCH_MULTIPLIER * limit) // len(terms), MIN_POSTS_PER_TERM)
+        posts_per_term = max(
+            (FETCH_MULTIPLIER * limit) // len(terms), MIN_POSTS_PER_TERM
+        )
 
         for idx, term in enumerate(terms):
             try:
@@ -158,7 +160,11 @@ class HackerNewsPlatform(BasePlatform):
             points = post.get("score", 0)
             comments = post.get("num_comments", 0)
 
-            return (-keyword_matches, -points, -comments)  # Negative for descending sort
+            return (
+                -keyword_matches,
+                -points,
+                -comments,
+            )  # Negative for descending sort
 
         # Sort by rank and take top N
         sorted_posts = sorted(all_posts.values(), key=rank_post)
