@@ -20,6 +20,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ig
 from analysis import (
     analyze_comments_sentiment,
     analyze_sentiment,
+    analyze_thread_sentiments,
     build_cooccurrence_network,
     extract_word_frequencies,
     sentiment_label,
@@ -46,13 +47,14 @@ HELP_TEXT = """
 [bold]Options:[/bold]
   -q, --query TEXT        Search query to analyze [default: Claude Code]
                           Use commas for OR logic: "claude,openai,chatgpt"
-  -a, --all-posts         Show all posts instead of just top/bottom 5
-  -l, --limit INTEGER     Total number of posts to collect [default: 60]
+  -a, --all-posts         Show all posts instead of just top 10
+  -l, --limit INTEGER     Total number of posts to collect [default: 20]
   -d, --sort-by-date      Sort posts by date instead of sentiment
   -c, --analyze-content   Also analyze sentiment of linked content
   -C, --analyze-comments  Analyze comment sentiment (shows colored blocks)
   -s, --show-links        Show linked content URLs as third line in title
   -n, --network           Show word co-occurrence network instead of frequency
+  -p, --platform TEXT     Platform: all, reddit, hackernews [default: all]
   --debug-content         Show extracted content used for sentiment analysis
                           (use with -c)
   -h, --help              Show this message and exit
@@ -61,6 +63,7 @@ HELP_TEXT = """
   uv run src/main.py                              # Default behavior
   uv run src/main.py -q "GPT-4" -l 40             # Custom query and limit
   uv run src/main.py -q "claude,openai" -l 50     # OR query (comma-separated)
+  uv run src/main.py -p reddit                    # Reddit only
   uv run src/main.py -d -a                        # Sort by date, show all
   uv run src/main.py --query "Claude 4" --help    # This help message
 """
@@ -84,10 +87,10 @@ def main(
         "Claude Code", "--query", "-q", help="Search query to analyze"
     ),
     all_posts: bool = typer.Option(
-        False, "--all-posts", "-a", help="Show all posts instead of just top/bottom 5"
+        False, "--all-posts", "-a", help="Show all posts instead of just top 10"
     ),
     limit: int = typer.Option(
-        60, "--limit", "-l", help="Total number of posts to collect"
+        20, "--limit", "-l", help="Total number of posts to collect"
     ),
     sort_by_date: bool = typer.Option(
         False, "--sort-by-date", "-d", help="Sort posts by date instead of sentiment"
@@ -116,6 +119,12 @@ def main(
         "-n",
         help="Show word co-occurrence network instead of frequency",
     ),
+    platform: str = typer.Option(
+        "all",
+        "--platform",
+        "-p",
+        help="Platform to collect from: all, reddit, hackernews",
+    ),
     debug_content: bool = typer.Option(
         False,
         "--debug-content",
@@ -127,6 +136,15 @@ def main(
 
     if help_flag:
         show_help()
+        return
+
+    # Validate platform choice
+    platform_lower = platform.lower()
+    if platform_lower not in ["all", "reddit", "hackernews"]:
+        console.print(
+            f"[bold red]❌ Invalid platform: '{platform}'. "
+            f"Choose: all, reddit, hackernews[/]"
+        )
         return
 
     console.print(
@@ -168,31 +186,46 @@ def main(
                 f.write(f"Generated at: {datetime.now().isoformat()}\n")
                 f.write("=" * 80 + "\n")
 
-        # Collect posts from both sources in parallel
-        console.print(
-            "🔍 [bold]Collecting posts from Reddit and HackerNews in parallel...[/]"
-        )
+        # Collect posts based on platform selection
+        if platform_lower == "all":
+            console.print(
+                "🔍 [bold]Collecting posts from Reddit and HackerNews in parallel...[/]"
+            )
 
-        async def collect_all_posts():
-            """Collect posts from both platforms concurrently."""
-            # Run both platform collections concurrently
-            reddit_task = reddit_platform.collect_posts_async(query, limit // 2)
-            hn_task = hackernews_platform.collect_posts_async(query, limit // 2)
+            async def collect_all_posts():
+                """Collect posts from both platforms concurrently."""
+                # Run both platform collections concurrently
+                reddit_task = reddit_platform.collect_posts_async(query, limit // 2)
+                hn_task = hackernews_platform.collect_posts_async(query, limit // 2)
 
-            # Wait for both to complete
-            reddit_posts, hn_posts = await asyncio.gather(reddit_task, hn_task)
-            return reddit_posts, hn_posts
+                # Wait for both to complete
+                reddit_posts, hn_posts = await asyncio.gather(reddit_task, hn_task)
+                return reddit_posts, hn_posts
 
-        # Execute parallel collection
-        reddit_posts, hn_posts = asyncio.run(collect_all_posts())
-        posts = reddit_posts + hn_posts
+            # Execute parallel collection
+            reddit_posts, hn_posts = asyncio.run(collect_all_posts())
+            posts = reddit_posts + hn_posts
+        elif platform_lower == "reddit":
+            console.print("🔍 [bold]Collecting posts from Reddit only...[/]")
+            reddit_posts = asyncio.run(
+                reddit_platform.collect_posts_async(query, limit)
+            )
+            hn_posts = []
+            posts = reddit_posts
+        else:  # hackernews
+            console.print("🔍 [bold]Collecting posts from HackerNews only...[/]")
+            hn_posts = asyncio.run(
+                hackernews_platform.collect_posts_async(query, limit)
+            )
+            reddit_posts = []
+            posts = hn_posts
 
         if not posts:
             console.print("❌ [bold red]No posts found. Exiting.[/]")
             return
 
-        # Check if we need to fetch more posts to reach the limit
-        if len(posts) < limit:
+        # Check if we need to fetch more posts to reach the limit (only in "all" mode)
+        if platform_lower == "all" and len(posts) < limit:
             shortfall = limit - len(posts)
             console.print(
                 f"📊 [dim]Got {len(reddit_posts)} Reddit + {len(hn_posts)} HN posts. "
@@ -226,7 +259,7 @@ def main(
                 posts.extend(additional_reddit)
                 reddit_posts.extend(additional_reddit)
                 console.print(
-                    f"✅ [dim]Fetched {len(additional_reddit)} additional Reddit posts. "
+                    f"✅ [dim]Fetched {len(additional_reddit)} more posts. "
                     f"Total: {len(posts)}[/]"
                 )
 
@@ -438,40 +471,58 @@ def main(
         if analyze_comments:
             console.print("💬 [bold]Analyzing comment sentiment in parallel...[/]")
 
-            async def fetch_all_comments() -> None:
-                """Fetch and analyze comments for all posts concurrently."""
-                tasks = []
-                for result in sentiment_results:
-                    # Create post_data dict for platform method
-                    post_data = {
-                        "id": result.get("post_id", ""),
-                        "subreddit": result.get("subreddit", "unknown"),
-                        "source": result.get("source", ""),
-                    }
+            with Progress() as progress:
+                task_id = progress.add_task(
+                    "[cyan]Fetching comments...", total=len(sentiment_results)
+                )
 
-                    # Get the appropriate platform
-                    source = result["source"]
-                    platform = platforms.get(source)
+                async def fetch_all_comments() -> None:
+                    """Fetch and analyze comments for all posts concurrently."""
+                    tasks = []
+                    for result in sentiment_results:
+                        # Create post_data dict for platform method
+                        post_data = {
+                            "id": result.get("post_id", ""),
+                            "subreddit": result.get("subreddit", "unknown"),
+                            "source": result.get("source", ""),
+                        }
 
-                    if platform:
-                        # Create async task to fetch comments
-                        task = platform.fetch_comments(post_data, limit=30)
-                        tasks.append((result, task))
+                        # Get the appropriate platform
+                        source = result["source"]
+                        platform = platforms.get(source)
 
-                # Run all comment fetching tasks concurrently
-                for result, task in tasks:
-                    comments = await task
-                    # Analyze sentiment of fetched comments
-                    if comments:
-                        comment_sentiments = analyze_comments_sentiment(
-                            comments, analyzer
-                        )
-                        result["comment_sentiments"] = comment_sentiments
-                    else:
-                        result["comment_sentiments"] = None
+                        if platform:
+                            # Create async task to fetch comment threads
+                            task = platform.fetch_comment_threads(post_data, limit=30)
+                            tasks.append((result, task))
 
-            # Execute parallel comment fetching
-            asyncio.run(fetch_all_comments())
+                    # Run all comment fetching tasks concurrently
+                    completed = 0
+                    for result, task in tasks:
+                        threads = await task
+                        # Analyze sentiment of fetched comment threads
+                        if threads:
+                            # New: Analyze thread structure
+                            thread_sentiments = analyze_thread_sentiments(
+                                threads, analyzer
+                            )
+                            result["comment_threads"] = thread_sentiments
+
+                            # Old: Keep aggregated sentiment for backward compatibility
+                            comment_texts = [t.get("text", "") for t in threads]
+                            comment_sentiments = analyze_comments_sentiment(
+                                comment_texts, analyzer
+                            )
+                            result["comment_sentiments"] = comment_sentiments
+                        else:
+                            result["comment_threads"] = None
+                            result["comment_sentiments"] = None
+
+                        completed += 1
+                        progress.update(task_id, completed=completed)
+
+                # Execute parallel comment fetching
+                asyncio.run(fetch_all_comments())
 
             console.print(
                 f"[dim]💬 Analyzed comments for {len(sentiment_results)} posts[/]"

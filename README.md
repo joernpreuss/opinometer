@@ -19,18 +19,22 @@ Opinometer provides instant insights into how communities feel about specific to
 - **Multi-source data collection**: Parallel fetching from Reddit and Hacker News APIs
 - **Three-level sentiment analysis**:
   - Title sentiment
-  - Post body sentiment
-  - Linked content sentiment (optional)
+  - Post body sentiment (Reddit self-posts)
+  - Linked content sentiment (optional with `-c` flag)
+- **Z-score normalization**: Fair comparison of Reddit and HackerNews posts despite different score scales
 - **Version extraction**: Automatically detects and categorizes product versions
+- **Platform-specific display**: Color-coded sources (Reddit: blue, HackerNews: orange)
+- **Smart URL handling**: Shows both discussion URLs and external links with longer permalink formats
 - **Smart date formatting**: Color-coded relative timestamps (today, last week, 3 months, etc.)
 - **Beautiful console output**: Rich terminal UI with colored tables and progress indicators
+- **Robust error handling**: Detects API rate limits and access issues with helpful messages
 - **No API keys required**: Uses public APIs for both platforms
 - **Data export**: Save results to JSON and CSV formats
 
 ### Technical Highlights
 - **Async/parallel processing**: Fast data collection and content fetching
 - **Platform abstraction**: Clean class-based architecture for easy extension
-- **Type safety**: Modern Python 3.13+ with comprehensive type hints
+- **Type safety**: Modern Python 3.13+ with type hints
 - **PostgreSQL integration**: Optional database storage with SQLModel (ready)
 
 ## Quick Start
@@ -59,7 +63,7 @@ uv run src/main.py
 # Custom query
 uv run src/main.py --query "ChatGPT"
 
-# Show all posts (not just top/bottom 5)
+# Show all posts (not just top 10)
 uv run src/main.py --all-posts
 
 # Sort by date instead of sentiment
@@ -82,16 +86,16 @@ uv run src/main.py --limit 100
    Neutral                   13 (54.2%)
    Negative                  4 (16.7%)
 
-┏━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Score ┃ Date       ┃ Version     ┃ Source        ┃ Sentiments & Title / Post... ┃
-┡━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│  2.1k │ 2025-09-29 │ Claude 3.7  │ r/Anthropic   │ +0.985 Just tried Claude...  │
-│       │ today      │             │               │ +0.891 https://reddit.com/... │
-│  1.5k │ 2025-09-25 │ Claude Code │ r/ClaudeAI    │ +0.973 The Claude Code is...  │
-│       │ last week  │             │               │  N/A   https://reddit.com/... │
-│   892 │ 2025-08-19 │ Claude Code │ r/ClaudeAI    │ -0.920 Claude Code broke...   │
-│       │ 3 months   │             │               │ -0.847 https://reddit.com/... │
-└───────┴────────────┴─────────────┴───────────────┴───────────────────────────────┘
+┏━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Source        ┃ Score ┃ Date       ┃ Version     ┃ Sentmt ┃ Title / Post Link / Content  ┃
+┡━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Reddit        │  2.1k │ 2025-09-29 │ Claude 3.7  │ +0.985 │ Just tried Claude Code...    │
+│ r/Anthropic   │       │ today      │             │ +0.891 │ https://reddit.com/r/...     │
+│ Reddit        │  1.5k │ 2025-09-25 │ Claude Code │ +0.973 │ The Claude Code is amazing   │
+│ r/ClaudeAI    │       │ last week  │             │  N/A   │ https://reddit.com/r/...     │
+│ HackerNews    │   892 │ 2025-08-19 │ Claude Code │ -0.920 │ Claude Code broke my build   │
+│               │       │ 3 months   │             │ -0.847 │ https://news.ycombinator.com │
+└───────────────┴───────┴────────────┴─────────────┴────────┴──────────────────────────────┘
 ```
 
 ## Architecture
@@ -125,7 +129,7 @@ opinometer/
 
 - **Strategy Pattern**: Platform-specific collectors inherit from `BasePlatform`
 - **Async/Await**: Parallel HTTP requests for fast data collection
-- **Type Safety**: Comprehensive type hints with TypedDict for data structures
+- **Type Safety**: Type hints with TypedDict for data structures
 - **Dependency Injection**: Console and analyzer passed to platform classes
 
 ## Database Setup (Optional)

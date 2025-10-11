@@ -13,7 +13,7 @@ COL_WIDTH_SENTIMENT = 6
 COL_WIDTH_DATE = 10
 COL_WIDTH_VERSION = 12
 COL_WIDTH_SOURCE = 15
-COL_WIDTH_COMMENTS = 5
+COL_WIDTH_COMMENTS = 8
 MIN_TITLE_WIDTH = 20
 
 # Word frequency table column widths
@@ -51,6 +51,108 @@ def _truncate_title(title: str, max_length: int) -> str:
 
     # Truncate to effective max length
     return title[:effective_max]
+
+
+def render_thread_layout(thread_data: list[dict] | None) -> str:
+    """Render comment thread in compact 2-line layout.
+
+    Args:
+        thread_data: List of dicts with 'sentiment' (compound score) and
+                    'replies' (list of compound scores), or None
+
+    Returns:
+        2-line string visualization showing thread structure
+
+    Layout:
+        Dynamic left-to-right "turtle" layout (8 chars wide max)
+        - Start at position 0
+        - Place top-level comment
+        - Place 0-2 replies below and to the right (indented)
+        - Move cursor right by (1 + number of replies)
+        - Repeat until width = 8
+
+    Examples:
+        Thread 1 (2 replies) + Thread 2 (1 reply) + Thread 3 (0 replies)
+        + Thread 4 (1 reply):
+        █  ▅ ▃ ▂    <- Top-level at positions 0, 3, 5, 6
+         ▄▆ ▇ █     <- Replies indented below
+
+        Block heights represent comment length:
+        ▁ (0 chars) ▂ (<50) ▃ (<100) ▄ (<200) ▅ (<400) ▆ (<600) ▇ (<800) █ (800+)
+        Colors represent sentiment: green (positive), yellow (neutral), red (negative)
+    """
+    if not thread_data:
+        return "[dim]--------[/dim]"
+
+    # Helper to get sentiment char with height based on comment length
+    def sentiment_char(score: float, text: str = "") -> str:
+        # Determine color based on sentiment
+        if score > 0.05:
+            color = "green"
+        elif score < -0.05:
+            color = "red"
+        else:
+            color = "yellow"
+
+        # Determine block height based on text length
+        text_len = len(text)
+        if text_len == 0:
+            block = "▁"  # Shortest
+        elif text_len < 50:
+            block = "▂"
+        elif text_len < 100:
+            block = "▃"
+        elif text_len < 200:
+            block = "▄"
+        elif text_len < 400:
+            block = "▅"
+        elif text_len < 600:
+            block = "▆"
+        elif text_len < 800:
+            block = "▇"
+        else:
+            block = "█"  # Longest (800+ chars)
+
+        return f"[{color}]{block}[/{color}]"
+
+    # Dynamic layout: build left-to-right like a turtle
+    # Start at position 0, add top comment, add replies below,
+    # move right by the space taken, repeat until width = 8
+
+    line1_grid = [" "] * 8
+    line2_grid = [" "] * 8
+
+    cursor = 0  # Current position (turtle cursor)
+
+    for thread in thread_data:
+        if cursor >= 8:
+            break
+
+        # Add top-level comment at current cursor position with text length
+        top_text = thread.get("text", "")
+        line1_grid[cursor] = sentiment_char(thread["sentiment"], top_text)
+
+        # Get replies (max 2) - now each reply is a dict with 'sentiment' and 'text'
+        replies = thread.get("replies", [])[:2]
+
+        # Add replies on line 2, starting at cursor+1 (indented)
+        for j, reply_data in enumerate(replies):
+            reply_pos = cursor + j + 1
+            if reply_pos < 8:
+                reply_sentiment = reply_data.get("sentiment", 0.0)
+                reply_text = reply_data.get("text", "")
+                line2_grid[reply_pos] = sentiment_char(reply_sentiment, reply_text)
+
+        # Move cursor right: 1 for top comment + number of replies
+        # This gives us the width taken by this thread
+        thread_width = 1 + len(replies)
+        cursor += thread_width
+
+    # Build final output
+    line1_str = "".join(line1_grid).rstrip()
+    line2_str = "".join(line2_grid).rstrip()
+
+    return f"{line1_str}\n{line2_str}" if line2_str.strip() else line1_str
 
 
 def render_sentiment_blocks(comment_sentiments: dict[str, int] | None) -> str:
@@ -140,7 +242,10 @@ def format_date(created_utc: float) -> str:
 
         # Color-code based on age
         if age_days == 0:  # Today
-            return f"[bright_white]{date_str}[/bright_white]\n[bright_black]{relative}[/bright_black]"
+            return (
+                f"[bright_white]{date_str}[/bright_white]\n"
+                f"[bright_black]{relative}[/bright_black]"
+            )
         elif age_days <= 7:  # Within a week
             return f"[green]{date_str}[/green]\n[bright_black]{relative}[/bright_black]"
         elif age_days <= 30:  # Within a month
@@ -192,19 +297,16 @@ def format_table_row(
         display_url = url
 
     # Format title with URLs using platform method
-    if show_links and url and platform:
+    if platform:
         title_with_url = platform.format_title_with_urls(
             title, url, display_url, result
         )
     else:
-        # Show title and discussion URL (2 lines)
+        # Fallback for platforms without format method
         if display_url:
             title_with_url = f"{title}\n[bright_black]{display_url}[/bright_black]"
         else:
             title_with_url = title
-
-    # Check if title actually has 3 lines (title + discussion + content link)
-    has_content_link_in_title = title_with_url.count("\n") >= 2
 
     title_color = "green" if title_score > 0 else "red" if title_score < 0 else "yellow"
 
@@ -219,64 +321,70 @@ def format_table_row(
     version_display = result.get("claude_version") or result.get("model_label") or "N/A"
     date_display = format_date(result.get("created_utc", 0))
 
-    # Combine sentiments with title - sentiment before each line
+    # Build sentiment column (separate from title)
     title_lines = title_with_url.split("\n")
 
     # Build sentiment values
     sentiment_values = [f"[{title_color}]{title_score:+.3f}[/]"]
 
-    # Add post sentiment if available, or N/A if we have more lines
-    selftext_sentiment = result.get("selftext_sentiment")
-    if selftext_sentiment:
-        post_score = selftext_sentiment["compound"]
-        post_color = (
-            "green" if post_score > 0 else "red" if post_score < 0 else "yellow"
-        )
-        sentiment_values.append(f"[{post_color}]{post_score:+.3f}[/]")
-    elif len(title_lines) >= 2:
-        sentiment_values.append("[dim] N/A  [/]")
-
-    # Add link content sentiment if enabled
-    if analyze_content:
-        content_sentiment = result.get("content_sentiment")
-        if content_sentiment:
-            link_score = content_sentiment["compound"]
-            link_color = (
-                "green" if link_score > 0 else "red" if link_score < 0 else "yellow"
+    # Line 2: Always selftext sentiment (if exists) OR N/A
+    if len(title_lines) >= 2:
+        selftext_sentiment = result.get("selftext_sentiment")
+        if selftext_sentiment:
+            post_score = selftext_sentiment["compound"]
+            post_color = (
+                "green" if post_score > 0 else "red" if post_score < 0 else "yellow"
             )
-            sentiment_values.append(f"[{link_color}]{link_score:+.3f}[/]")
-        elif has_content_link_in_title:
+            sentiment_values.append(f"[{post_color}]{post_score:+.3f}[/]")
+        else:
             sentiment_values.append("[dim] N/A  [/]")
 
-    # Combine sentiment + title on each line
-    combined_lines = []
-    for i, line in enumerate(title_lines):
-        if i < len(sentiment_values):
-            combined_lines.append(f"{sentiment_values[i]} {line}")
+    # Line 3: Always external content sentiment (if `-c` and exists) OR N/A
+    if len(title_lines) >= 3:
+        if analyze_content:
+            content_sentiment = result.get("content_sentiment")
+            if content_sentiment:
+                link_score = content_sentiment["compound"]
+                link_color = (
+                    "green" if link_score > 0 else "red" if link_score < 0 else "yellow"
+                )
+                sentiment_values.append(f"[{link_color}]{link_score:+.3f}[/]")
+            else:
+                sentiment_values.append("[dim] N/A  [/]")
         else:
-            combined_lines.append(line)
+            sentiment_values.append("[dim] N/A  [/]")
 
-    title_with_sentiment = "\n".join(combined_lines)
+    # Create separate sentiment column (multiline)
+    sentiments_display = "\n".join(sentiment_values)
 
-    # Return row with or without comment blocks (comments at end)
+    # Return row with comment visualization (if enabled)
     if analyze_comments:
-        comment_sentiments = result.get("comment_sentiments")
-        comment_blocks = render_sentiment_blocks(comment_sentiments)
+        # New: Use thread layout if available
+        comment_threads = result.get("comment_threads")
+        if comment_threads is not None:
+            comment_viz = render_thread_layout(comment_threads)
+        else:
+            # Fallback: Use old aggregated blocks
+            comment_sentiments = result.get("comment_sentiments")
+            comment_viz = render_sentiment_blocks(comment_sentiments)
+
         return (
+            source_display,
             score_display,
             date_display,
             version_display,
-            source_display,
-            title_with_sentiment,
-            comment_blocks,
+            sentiments_display,
+            comment_viz,
+            title_with_url,
         )
     else:
         return (
+            source_display,
             score_display,
             date_display,
             version_display,
-            source_display,
-            title_with_sentiment,
+            sentiments_display,
+            title_with_url,
         )
 
 
@@ -356,20 +464,53 @@ def print_summary(
         )
         table_title = "🗓️ Posts by Date (Newest First)"
     else:
-        # Sort by score (upvotes/points) - highest first
+        # Normalize scores by platform to enable fair comparison
+        # (Reddit scores are typically much higher than HackerNews scores)
+        reddit_posts = [r for r in sentiment_results if r["source"] == "Reddit"]
+        hn_posts = [r for r in sentiment_results if r["source"] == "HackerNews"]
+
+        # Calculate mean and std dev for each platform
+        if reddit_posts:
+            reddit_scores = [r.get("score", 0) for r in reddit_posts]
+            reddit_mean = sum(reddit_scores) / len(reddit_scores)
+            reddit_variance = sum((s - reddit_mean) ** 2 for s in reddit_scores) / len(
+                reddit_scores
+            )
+            reddit_std = reddit_variance**0.5 if reddit_variance > 0 else 1
+
+        if hn_posts:
+            hn_scores = [r.get("score", 0) for r in hn_posts]
+            hn_mean = sum(hn_scores) / len(hn_scores)
+            hn_variance = sum((s - hn_mean) ** 2 for s in hn_scores) / len(hn_scores)
+            hn_std = hn_variance**0.5 if hn_variance > 0 else 1
+
+        # Assign normalized scores
+        for result in sentiment_results:
+            score = result.get("score", 0)
+            if result["source"] == "Reddit" and reddit_posts:
+                # Z-score normalization
+                result["normalized_score"] = (score - reddit_mean) / reddit_std
+            elif result["source"] == "HackerNews" and hn_posts:
+                # Z-score normalization
+                result["normalized_score"] = (score - hn_mean) / hn_std
+            else:
+                result["normalized_score"] = 0.0
+
+        # Sort by normalized score
         sorted_results = sorted(
-            sentiment_results, key=lambda x: x.get("score", 0), reverse=True
+            sentiment_results, key=lambda x: x.get("normalized_score", 0), reverse=True
         )
-        table_title = "🔍 Top Posts by Score"
+        table_title = "🔍 Top Posts by Score (Normalized)"
 
     # Calculate title width based on terminal size
     terminal_width = console.size.width
-    # Sum of fixed column widths (sentiment is now combined with title)
+    # Sum of fixed column widths (sentiment is now separate)
     fixed_cols = (
         COL_WIDTH_SCORE  # Score column
         + COL_WIDTH_DATE
         + COL_WIDTH_VERSION
         + COL_WIDTH_SOURCE
+        + COL_WIDTH_SENTIMENT  # Separate sentiment column
     )
 
     # Add comments column width if analyzing comments
@@ -377,9 +518,9 @@ def print_summary(
         fixed_cols += COL_WIDTH_COMMENTS
 
     # Borders and padding: (num_cols + 1) borders + (num_cols * 2) padding
-    num_cols = 5  # Score, Date, Version, Source, Title (with sentiment)
+    num_cols = 6  # Score, Date, Version, Source, Sentiment, Title
     if analyze_comments:
-        num_cols = 6  # Add Comments column
+        num_cols = 7  # Add Comments column
     overhead = (num_cols + 1) + (num_cols * 2)
     # Available for title (minimum 20 chars to ensure readability)
     title_width = max(MIN_TITLE_WIDTH, terminal_width - fixed_cols - overhead)
@@ -392,23 +533,29 @@ def print_summary(
         show_lines=True,
     )
 
-    # Add columns - comments column at end if analyzing comments
+    # Add columns - source first, then sentiments, comments (if enabled), title
+    posts_table.add_column("Source", width=COL_WIDTH_SOURCE)
     posts_table.add_column(
         "Score", width=COL_WIDTH_SCORE, style="bold magenta", justify="right"
     )
     posts_table.add_column("Date", width=COL_WIDTH_DATE)
     posts_table.add_column("Version", width=COL_WIDTH_VERSION, style="cyan")
-    posts_table.add_column("Source", width=COL_WIDTH_SOURCE)
     posts_table.add_column(
-        "Sentiments & Title / Post Link / Content Link",
+        "Sentmt",
+        width=COL_WIDTH_SENTIMENT,
+        no_wrap=True,
+        justify="center",
+    )
+    if analyze_comments:
+        posts_table.add_column(
+            "Comments", width=COL_WIDTH_COMMENTS, style="bold", justify="left"
+        )
+    posts_table.add_column(
+        "Title / Post Link / Content Link",
         no_wrap=True,
         overflow="ellipsis",
         ratio=1,
     )
-    if analyze_comments:
-        posts_table.add_column(
-            "Com.", width=COL_WIDTH_COMMENTS, style="bold", justify="center"
-        )
 
     posts_table.add_section()
 

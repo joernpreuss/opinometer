@@ -114,12 +114,34 @@ class RedditPlatform(BasePlatform):
                     num_comments=post.get("num_comments", 0),
                     subreddit=post.get("subreddit", "unknown"),
                 )
+
+                # Add permalink for longer discussion URL format
+                permalink = post.get("permalink", "")
+                if permalink and not permalink.startswith("http"):
+                    permalink = f"https://www.reddit.com{permalink}"
+                post_data["permalink"] = permalink
+
                 posts.append(post_data)
 
             if not after:
                 self.log_success(len(posts))
             return posts
 
+        except httpx.HTTPStatusError as e:
+            # Handle specific HTTP errors
+            if e.response.status_code == 429:
+                self.console.print(
+                    "⚠️  [bold yellow]Reddit API rate limit reached[/] - "
+                    "Try again in a few minutes"
+                )
+            elif e.response.status_code == 403:
+                self.console.print(
+                    "❌ [bold red]Reddit API access forbidden[/] - "
+                    "Check your network/VPN"
+                )
+            else:
+                self.log_error(e)
+            return []
         except Exception as e:
             self.log_error(e)
             return []
@@ -152,50 +174,132 @@ class RedditPlatform(BasePlatform):
 
     def get_discussion_url(self, post_data: PostData) -> str:
         """Get the discussion URL for a Reddit post."""
-        url = post_data.get("url", "")
-
-        # For video/image posts, generate discussion URL instead
-        if url and (
-            url.startswith("https://v.redd.it/") or url.startswith("https://i.redd.it/")
-        ):
-            reddit_id = post_data.get("id", "")
-            subreddit = post_data.get("subreddit", "unknown")
-            return (
-                f"https://www.reddit.com/r/{subreddit}/comments/{reddit_id}/"
-                if reddit_id
-                else ""
-            )
-        else:
-            return url
+        # Always return the Reddit discussion/comments URL
+        reddit_id = post_data.get("id", "")
+        subreddit = post_data.get("subreddit", "unknown")
+        return (
+            f"https://www.reddit.com/r/{subreddit}/comments/{reddit_id}/"
+            if reddit_id
+            else ""
+        )
 
     def format_source_display(self, post_data: PostData) -> str:
         """Format the source display for a Reddit post."""
         subreddit = post_data.get("subreddit", "unknown")
-        return f"Reddit\n[bright_black]r/{subreddit}[/bright_black]"
+        return (
+            f"[bright_blue]Reddit[/bright_blue]\n"
+            f"[bright_black]r/{subreddit}[/bright_black]"
+        )
 
     def format_title_with_urls(
         self, title: str, original_url: str, discussion_url: str, post_data: PostData
     ) -> str:
         """Format title with URLs for Reddit posts."""
-        selftext = post_data.get("selftext", "")
+        # Get permalink (longer format with title slug)
+        permalink = post_data.get("permalink", "")
 
-        if not selftext:
-            # Link post: show discussion URL and external URL if different and
-            # not video/image
-            if (
-                original_url != discussion_url
-                and not original_url.startswith("https://v.redd.it/")
-                and not original_url.startswith("https://i.redd.it/")
-            ):
-                return (
-                    f"{title}\n[bright_black]{discussion_url}[/bright_black]"
-                    f"\n[bright_black]{original_url}[/bright_black]"
-                )
+        # Check if original URL is external (not Reddit internal)
+        is_reddit_url = original_url.startswith("https://www.reddit.com/")
+        is_reddit_media = original_url.startswith(
+            "https://v.redd.it/"
+        ) or original_url.startswith("https://i.redd.it/")
+        has_external_url = original_url and not is_reddit_url and not is_reddit_media
+
+        if has_external_url:
+            # External link (with or without selftext): 3 lines
+            # Show title, discussion URL, and external URL
+            discussion = permalink if permalink else discussion_url
+            return (
+                f"{title}\n[bright_black]{discussion}[/bright_black]"
+                f"\n[bright_black]{original_url}[/bright_black]"
+            )
+        else:
+            # Self-post or Reddit media: 2 lines
+            # Show title and permalink
+            if permalink:
+                return f"{title}\n[bright_black]{permalink}[/bright_black]"
+            elif is_reddit_url and "/comments/" in original_url:
+                return f"{title}\n[bright_black]{original_url}[/bright_black]"
             else:
                 return f"{title}\n[bright_black]{discussion_url}[/bright_black]"
-        else:
-            # Self-post: only show discussion URL (no external link)
-            return f"{title}\n[bright_black]{discussion_url}[/bright_black]"
+
+    async def fetch_comment_threads(
+        self, post_data: PostData, limit: int = 30
+    ) -> list[dict]:
+        """Fetch comment threads with structure for a Reddit post.
+
+        Args:
+            post_data: Post data dictionary containing id and subreddit
+            limit: Maximum number of top-level comments to fetch (default: 30)
+
+        Returns:
+            List of dicts with 'text' (str), 'replies' (list of reply texts)
+        """
+        post_id = post_data.get("id", "")
+        subreddit = post_data.get("subreddit", "unknown")
+
+        if not post_id or subreddit == "unknown":
+            return []
+
+        try:
+            # Reddit JSON API endpoint for comments
+            url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}/_.json"
+            headers = {"User-Agent": "Opinometer/1.0"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=10.0)
+                response.raise_for_status()
+                data = response.json()
+
+            # Response is [post_data, comments_data]
+            if not isinstance(data, list) or len(data) < 2:
+                return []
+
+            comments_listing = data[1]
+            if (
+                "data" not in comments_listing
+                or "children" not in comments_listing["data"]
+            ):
+                return []
+
+            # Extract thread structure
+            threads: list[dict] = []
+            for child in comments_listing["data"]["children"]:
+                if child.get("kind") != "t1":  # t1 = comment
+                    continue
+
+                comment_data = child.get("data", {})
+                body = comment_data.get("body", "")
+
+                # Skip deleted/removed comments
+                if not body or body in ["[deleted]", "[removed]"]:
+                    continue
+
+                # Extract replies (max 2 per top-level comment)
+                reply_texts: list[str] = []
+                replies_data = comment_data.get("replies", "")
+                if replies_data and isinstance(replies_data, dict):
+                    reply_children = replies_data.get("data", {}).get("children", [])
+                    for reply_child in reply_children[:2]:
+                        if reply_child.get("kind") == "t1":
+                            reply_body = reply_child.get("data", {}).get("body", "")
+                            if reply_body and reply_body not in [
+                                "[deleted]",
+                                "[removed]",
+                            ]:
+                                reply_texts.append(reply_body)
+
+                threads.append({"text": body, "replies": reply_texts})
+
+                # Stop if we have enough top-level comments
+                if len(threads) >= limit:
+                    break
+
+            return threads
+
+        except Exception:
+            # Silently return empty list on error (don't spam console)
+            return []
 
     async def fetch_comments(self, post_data: PostData, limit: int = 30) -> list[str]:
         """Fetch top-level comments for a Reddit post.

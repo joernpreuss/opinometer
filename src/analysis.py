@@ -38,6 +38,46 @@ def sentiment_label(compound_score: float) -> str:
         return "neutral"
 
 
+def analyze_thread_sentiments(
+    threads: list[dict], analyzer: SentimentIntensityAnalyzer
+) -> list[dict]:
+    """Analyze sentiment of comment threads with structure.
+
+    Args:
+        threads: List of dicts with 'text' (str) and 'replies' (list of str)
+        analyzer: VADER sentiment analyzer instance
+
+    Returns:
+        List of dicts with 'sentiment' (compound score), 'text' (str),
+        and 'replies' (list of dicts with 'sentiment' and 'text')
+    """
+    thread_sentiments: list[dict] = []
+
+    for thread in threads:
+        text = thread.get("text", "")
+        if not text or not text.strip():
+            continue
+
+        # Analyze top-level comment sentiment
+        sentiment = analyze_sentiment(text, analyzer)
+        compound = sentiment["compound"]
+
+        # Analyze reply sentiments with text
+        reply_data: list[dict] = []
+        for reply_text in thread.get("replies", []):
+            if reply_text and reply_text.strip():
+                reply_sentiment = analyze_sentiment(reply_text, analyzer)
+                reply_data.append(
+                    {"sentiment": reply_sentiment["compound"], "text": reply_text}
+                )
+
+        thread_sentiments.append(
+            {"sentiment": compound, "text": text, "replies": reply_data}
+        )
+
+    return thread_sentiments
+
+
 def analyze_comments_sentiment(
     comments: list[str], analyzer: SentimentIntensityAnalyzer
 ) -> dict[str, int]:
@@ -66,7 +106,8 @@ def analyze_comments_sentiment(
 def extract_word_frequencies(
     sentiment_results: list[dict[str, Any]], query: str, top_n: int = 20
 ) -> list[tuple[str, int, bool]]:
-    """Extract and count most occurring words from titles, content, and fetched link content.
+    """Extract and count most occurring words from titles, content,
+    and fetched link content.
 
     Args:
         sentiment_results: List of sentiment analysis results

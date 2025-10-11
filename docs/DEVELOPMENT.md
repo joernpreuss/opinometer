@@ -83,6 +83,50 @@ To add support for new models:
 3. Update `RE_VERSION` regex if new version formats exist
 4. **Write tests first** to validate behavior
 
+## Design decisions
+
+Key architectural choices and their rationale.
+
+### Z-Score Normalization
+
+**Problem:** Reddit posts typically score 10k+, HackerNews posts 1k-2k. Direct score comparison would always favor Reddit posts.
+
+**Solution:** Calculate z-scores per platform before sorting:
+```python
+normalized_score = (score - platform_mean) / platform_std
+```
+
+This enables fair cross-platform comparison while preserving relative ranking within each platform.
+
+### Platform Abstraction
+
+**Pattern:** Each platform implements `BasePlatform` interface for consistent formatting and URL handling across Reddit/HackerNews.
+
+**Key methods:**
+- `format_source_display()` - Platform-specific colors (Reddit: blue, HN: orange)
+- `format_title_with_urls()` - Handles 2-line vs 3-line display based on post type
+- `get_discussion_url()` - Canonical discussion URL
+
+**Why abstraction?** Platforms have different post types (Reddit self-posts vs external links, HN Ask/Show vs links) that require different URL display logic. Abstraction keeps display code generic.
+
+### Comment Thread Visualization
+
+**Design Choice:** Dynamic "turtle" layout instead of fixed grid.
+
+**Why?** Posts have varying reply patterns:
+- HN posts with no replies should show 8 threads (not 3)
+- Reddit posts with 2 replies each should show 3 threads (not waste space)
+
+**Algorithm:** Build left-to-right, allocating space dynamically based on reply count. Each thread takes (1 + num_replies) positions.
+
+**Two-dimensional encoding:**
+- **Height** (▁▂▃▄▅▆▇█) = comment length (shows discussion depth)
+- **Color** (green/yellow/red) = sentiment (shows tone)
+
+**API Choice:**
+- **Reddit:** JSON API provides nested `replies` field
+- **HackerNews:** Switched from Algolia (no parent-child) to Firebase API (`kids` array) to get proper thread structure
+
 ## Coding standards
 
 - **Python 3.13 typing**: Use built-in generics (`list[str]`, `dict[str, Any]`), `TypedDict`, and `Literal`

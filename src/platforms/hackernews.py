@@ -196,20 +196,105 @@ class HackerNewsPlatform(BasePlatform):
 
     def format_source_display(self, post_data: PostData) -> str:
         """Format the source display for a Hacker News post."""
-        return self.name
+        return f"[#ff6600]{self.name}[/#ff6600]"
 
     def format_title_with_urls(
         self, title: str, original_url: str, discussion_url: str, post_data: PostData
     ) -> str:
         """Format title with URLs for Hacker News posts."""
-        # HackerNews: always show both discussion and article URL if different
+        # Show both HN discussion and external URL if different
         if original_url != discussion_url:
+            # External link - show both HN discussion and article URL
             return (
                 f"{title}\n[bright_black]{discussion_url}[/bright_black]"
                 f"\n[bright_black]{original_url}[/bright_black]"
             )
         else:
+            # Ask HN / Show HN - show discussion URL only
             return f"{title}\n[bright_black]{discussion_url}[/bright_black]"
+
+    async def fetch_comment_threads(
+        self, post_data: PostData, limit: int = 30
+    ) -> list[dict]:
+        """Fetch comment threads with structure for a HackerNews post.
+
+        Uses the Firebase API to get proper parent-child relationships.
+
+        Args:
+            post_data: Post data dictionary containing post id
+            limit: Maximum number of top-level comments to fetch (default: 30)
+
+        Returns:
+            List of dicts with 'text' (str), 'replies' (list of str)
+        """
+        post_id = post_data.get("id", "")
+
+        # Extract HN story ID from post_id (format: "hn_12345")
+        if not post_id.startswith("hn_"):
+            return []
+
+        story_id = post_id.replace("hn_", "")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                # Fetch the story to get top-level comment IDs
+                story_url = (
+                    f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json"
+                )
+                story_response = await client.get(story_url, timeout=10.0)
+                story_response.raise_for_status()
+                story_data = story_response.json()
+
+                # Get top-level comment IDs (kids)
+                top_level_ids = story_data.get("kids", [])[:limit]
+
+                if not top_level_ids:
+                    return []
+
+                threads: list[dict] = []
+
+                # Fetch each top-level comment and its replies
+                for comment_id in top_level_ids:
+                    comment_url = (
+                        f"https://hacker-news.firebaseio.com/v0/item/{comment_id}.json"
+                    )
+                    comment_response = await client.get(comment_url, timeout=10.0)
+                    comment_response.raise_for_status()
+                    comment_data = comment_response.json()
+
+                    # Skip deleted or empty comments
+                    if comment_data.get("deleted") or comment_data.get("dead"):
+                        continue
+
+                    comment_text = comment_data.get("text", "")
+                    if not comment_text or not comment_text.strip():
+                        continue
+
+                    # Get first 2 child comments (replies)
+                    reply_ids = comment_data.get("kids", [])[:2]
+                    reply_texts: list[str] = []
+
+                    for reply_id in reply_ids:
+                        reply_url = f"https://hacker-news.firebaseio.com/v0/item/{reply_id}.json"
+                        reply_response = await client.get(reply_url, timeout=10.0)
+                        reply_response.raise_for_status()
+                        reply_data = reply_response.json()
+
+                        # Skip deleted or empty replies
+                        if reply_data.get("deleted") or reply_data.get("dead"):
+                            continue
+
+                        reply_text = reply_data.get("text", "")
+                        if reply_text and reply_text.strip():
+                            reply_texts.append(reply_text)
+
+                    threads.append({"text": comment_text, "replies": reply_texts})
+
+                return threads
+
+        except Exception:
+            # Silently return empty list on error (don't spam console)
+            return []
 
     async def fetch_comments(self, post_data: PostData, limit: int = 30) -> list[str]:
         """Fetch comments for a Hacker News post.
